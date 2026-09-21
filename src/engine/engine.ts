@@ -1,6 +1,7 @@
 import type { Event } from "@/events/types"
 import type { Decision } from "@/engine/types"
 import { determineIntelligenceNeed } from "@/engine/intelligence-gate"
+import { validateRecommendation } from "@/engine/validate-recommendation"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { UserState } from "@/state/types"
 
@@ -61,6 +62,15 @@ export class ProactivityEngine {
       event,
       state,
     )
+
+    if (!validateRecommendation(recommendation)) {
+      return {
+        action: "SILENCE",
+        reason: "Intelligence provider returned an invalid recommendation",
+        eventId: event.id,
+        source: "deterministic",
+      }
+    }
 
     return {
       action: recommendation.action,
