@@ -2,8 +2,53 @@ import type { Event } from "@/events/types"
 import type { Decision } from "@/engine/types"
 import { determineIntelligenceNeed } from "@/engine/intelligence-gate"
 import { validateRecommendation } from "@/engine/validate-recommendation"
+import { createWaitRecommendation } from "@/engine/wait"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { UserState } from "@/state/types"
+
+const WAIT_RECONSIDER_DELAY_MS = 5 * 60 * 1000
+const WAIT_EXPIRY_DELAY_MS = 60 * 60 * 1000
+
+function createBoundedWait(
+  event: Event,
+  reason: string,
+): Decision {
+  const eventTime = Date.parse(event.timestamp)
+
+  if (Number.isNaN(eventTime)) {
+    return {
+      action: "SILENCE",
+      reason: "Cannot create bounded WAIT from an invalid event timestamp",
+      eventId: event.id,
+      source: "deterministic",
+    }
+  }
+
+  const reconsiderAt = new Date(
+    eventTime + WAIT_RECONSIDER_DELAY_MS,
+  ).toISOString()
+
+  const expiresAt = new Date(
+    eventTime + WAIT_EXPIRY_DELAY_MS,
+  ).toISOString()
+
+  const recommendation = createWaitRecommendation(
+    reason,
+    {
+      type: "time",
+      at: reconsiderAt,
+    },
+    expiresAt,
+  )
+
+  return {
+    action: "WAIT",
+    reason,
+    eventId: event.id,
+    source: "deterministic",
+    recommendation,
+  }
+}
 
 export class ProactivityEngine {
   constructor(
@@ -50,12 +95,10 @@ export class ProactivityEngine {
     }
 
     if (!this.intelligenceProvider) {
-      return {
-        action: "WAIT",
-        reason: "Intelligence is required but no provider is available",
-        eventId: event.id,
-        source: "deterministic",
-      }
+      return createBoundedWait(
+        event,
+        "Intelligence is required but no provider is available",
+      )
     }
 
     let recommendation
@@ -66,12 +109,10 @@ export class ProactivityEngine {
         state,
       )
     } catch {
-      return {
-        action: "WAIT",
-        reason: "Intelligence provider failed",
-        eventId: event.id,
-        source: "deterministic",
-      }
+      return createBoundedWait(
+        event,
+        "Intelligence provider failed",
+      )
     }
 
     if (!validateRecommendation(recommendation)) {
