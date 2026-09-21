@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
+import { processEvent } from "@/application/process-event"
 import { ProactivityEngine } from "@/engine/engine"
 import type { Event } from "@/events/types"
+import { executeInteraction } from "@/interaction/execute"
 import { InMemoryInteractionDelivery } from "@/interaction/in-memory-delivery"
-import { processEvent } from "@/application/process-event"
 import type { Recommendation } from "@/engine/types"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { UserState } from "@/state/types"
@@ -261,5 +262,70 @@ describe("processEvent", () => {
     )
     expect(result.interaction).toBeNull()
     expect(delivery.getDelivered()).toEqual([])
+  })
+
+  it("reconsiders WAIT and delivers SPEAK when the condition is met", async () => {
+    const provider = createProvider({
+      action: "WAIT",
+      reason: "More context is needed",
+      evidence: ["Insufficient context"],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
+      },
+      expiresAt: "2026-01-01T11:00:00.000Z",
+    })
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const initialResult = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    expect(initialResult.decision.action).toBe("WAIT")
+    expect(initialResult.interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+
+    provider.evaluate = vi.fn().mockResolvedValue({
+      action: "SPEAK",
+      reason: "The reconsideration condition was met",
+      evidence: ["The scheduled reconsideration time was reached"],
+      message: "Now is a good time to speak.",
+    })
+
+    const reconsideredDecision =
+      await engine.evaluateReconsideredWait(
+        initialResult.decision.recommendation!,
+        event,
+        state,
+        "2026-01-01T10:05:00.000Z",
+      )
+
+    const interaction = await executeInteraction(
+      reconsideredDecision,
+      delivery,
+    )
+
+    expect(reconsideredDecision.action).toBe("SPEAK")
+    expect(reconsideredDecision.source).toBe("llm")
+    expect(interaction).toEqual({
+      eventId: "event-1",
+      message: "Now is a good time to speak.",
+      reason: "The reconsideration condition was met",
+    })
+
+    expect(delivery.getDelivered()).toEqual([
+      {
+        eventId: "event-1",
+        message: "Now is a good time to speak.",
+        reason: "The reconsideration condition was met",
+      },
+    ])
+
+    expect(provider.evaluate).toHaveBeenCalledTimes(1)
   })
 })
