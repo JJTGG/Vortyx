@@ -58,10 +58,21 @@ export class ProactivityEngine {
       }
     }
 
-    const recommendation = await this.intelligenceProvider.evaluate(
-      event,
-      state,
-    )
+    let recommendation
+
+    try {
+      recommendation = await this.intelligenceProvider.evaluate(
+        event,
+        state,
+      )
+    } catch {
+      return {
+        action: "WAIT",
+        reason: "Intelligence provider failed",
+        eventId: event.id,
+        source: "deterministic",
+      }
+    }
 
     if (!validateRecommendation(recommendation)) {
       return {
