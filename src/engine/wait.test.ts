@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { createWaitDecision } from "@/engine/wait"
+import { createWaitRecommendation } from "@/engine/wait"
 
-describe("createWaitDecision", () => {
+describe("createWaitRecommendation", () => {
   it("creates a time-based WAIT with an expiry", () => {
-    const wait = createWaitDecision(
+    const wait = createWaitRecommendation(
       "Intelligence provider is unavailable",
       {
         type: "time",
@@ -15,6 +15,7 @@ describe("createWaitDecision", () => {
     expect(wait).toEqual({
       action: "WAIT",
       reason: "Intelligence provider is unavailable",
+      evidence: [],
       reconsiderWhen: {
         type: "time",
         at: "2026-01-01T10:05:00.000Z",
@@ -24,7 +25,7 @@ describe("createWaitDecision", () => {
   })
 
   it("preserves event-based reconsideration", () => {
-    const wait = createWaitDecision(
+    const wait = createWaitRecommendation(
       "Need another relevant event",
       {
         type: "event",
