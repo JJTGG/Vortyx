@@ -174,4 +174,23 @@ describe("ProactivityEngine", () => {
     expect(decision.action).toBe("SILENCE")
     expect(providerCalled).toBe(false)
   })
+
+  it("returns WAIT when the intelligence provider fails", async () => {
+    const provider: IntelligenceProvider = {
+      async evaluate() {
+        throw new Error("Provider unavailable")
+      },
+    }
+
+    const engine = new ProactivityEngine(provider)
+
+    const decision = await engine.evaluate(unknownEvent, baseState)
+
+    expect(decision).toMatchObject({
+      action: "WAIT",
+      source: "deterministic",
+      eventId: "event-1",
+      reason: "Intelligence provider failed",
+    })
+  })
 })
