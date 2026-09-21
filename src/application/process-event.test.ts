@@ -418,4 +418,155 @@ describe("processEvent", () => {
     expect(delivery.getDelivered()).toEqual([])
     expect(provider.evaluate).toHaveBeenCalledTimes(1)
   })
+
+  it("silences an invalid WAIT with a malformed reconsideration condition", async () => {
+    const provider: IntelligenceProvider = {
+      evaluate: vi.fn().mockResolvedValue({
+        action: "WAIT",
+        reason: "Malformed condition",
+        evidence: ["Invalid condition"],
+        reconsiderWhen: {
+          type: "unsupported",
+        },
+        expiresAt: "2026-01-01T11:00:00.000Z",
+      } as Recommendation),
+    }
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const result = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    expect(result.decision.action).toBe("SILENCE")
+    expect(result.decision.source).toBe("deterministic")
+    expect(result.decision.reason).toBe(
+      "Intelligence provider returned an invalid recommendation",
+    )
+    expect(result.interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+  })
+
+  it("silences an invalid WAIT with a malformed expiry", async () => {
+    const provider: IntelligenceProvider = {
+      evaluate: vi.fn().mockResolvedValue({
+        action: "WAIT",
+        reason: "Malformed expiry",
+        evidence: ["Invalid expiry"],
+        reconsiderWhen: {
+          type: "time",
+          at: "2026-01-01T10:05:00.000Z",
+        },
+        expiresAt: "not-a-date",
+      } as Recommendation),
+    }
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const result = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    expect(result.decision.action).toBe("SILENCE")
+    expect(result.decision.source).toBe("deterministic")
+    expect(result.decision.reason).toBe(
+      "Intelligence provider returned an invalid recommendation",
+    )
+    expect(result.interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+  })
+
+  it("silences an invalid SPEAK with an empty message", async () => {
+    const provider: IntelligenceProvider = {
+      evaluate: vi.fn().mockResolvedValue({
+        action: "SPEAK",
+        reason: "Missing usable message",
+        evidence: ["Empty message"],
+        message: "   ",
+      } as Recommendation),
+    }
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const result = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    expect(result.decision.action).toBe("SILENCE")
+    expect(result.decision.source).toBe("deterministic")
+    expect(result.decision.reason).toBe(
+      "Intelligence provider returned an invalid recommendation",
+    )
+    expect(result.interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+  })
+
+  it("silences an invalid SILENCE with an empty reason", async () => {
+    const provider: IntelligenceProvider = {
+      evaluate: vi.fn().mockResolvedValue({
+        action: "SILENCE",
+        reason: "",
+        evidence: ["No reason provided"],
+      } as Recommendation),
+    }
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const result = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    expect(result.decision.action).toBe("SILENCE")
+    expect(result.decision.source).toBe("deterministic")
+    expect(result.decision.reason).toBe(
+      "Intelligence provider returned an invalid recommendation",
+    )
+    expect(result.interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+  })
+
+  it("silences an invalid WAIT when it expires before reconsideration", async () => {
+    const provider = createProvider({
+      action: "WAIT",
+      reason: "Invalid time ordering",
+      evidence: ["Expiry occurs first"],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T11:00:00.000Z",
+      },
+      expiresAt: "2026-01-01T10:30:00.000Z",
+    })
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const result = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    expect(result.decision.action).toBe("WAIT")
+    expect(result.decision.source).toBe("llm")
+    expect(result.decision.recommendation?.action).toBe("WAIT")
+    expect(result.interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+  })
 })
