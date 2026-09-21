@@ -69,26 +69,23 @@ export function validateRecommendation(
     return false
   }
 
+  if (value.action === "SPEAK") {
+    if (!isNonEmptyString(value.message)) {
+      return false
+    }
+  }
+
   if (value.action === "WAIT") {
     if (!isValidReconsiderCondition(value.reconsiderWhen)) {
       return false
     }
 
     if (
-      value.expiresAt !== undefined &&
-      (typeof value.expiresAt !== "string" ||
-        Number.isNaN(Date.parse(value.expiresAt)))
+      typeof value.expiresAt !== "string" ||
+      Number.isNaN(Date.parse(value.expiresAt))
     ) {
       return false
     }
-  }
-
-  if (
-    value.action === "SPEAK" &&
-    value.message !== undefined &&
-    typeof value.message !== "string"
-  ) {
-    return false
   }
 
   return true
