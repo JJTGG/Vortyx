@@ -32,7 +32,7 @@ export type Recommendation =
       reason: string
       evidence: string[]
       reconsiderWhen: ReconsiderCondition
-      expiresAt?: string
+      expiresAt: string
     }
   | {
       action: "SILENCE"
