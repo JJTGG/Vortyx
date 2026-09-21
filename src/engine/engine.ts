@@ -1,6 +1,7 @@
 import type { Event } from "@/events/types"
-import type { Decision } from "@/engine/types"
+import type { Decision, Recommendation } from "@/engine/types"
 import { determineIntelligenceNeed } from "@/engine/intelligence-gate"
+import { reconsiderWait } from "@/engine/reconsider-wait"
 import { validateRecommendation } from "@/engine/validate-recommendation"
 import { createWaitRecommendation } from "@/engine/wait"
 import type { IntelligenceProvider } from "@/intelligence/provider"
@@ -55,9 +56,10 @@ export class ProactivityEngine {
     private readonly intelligenceProvider?: IntelligenceProvider,
   ) {}
 
-  async evaluate(
+  private async evaluateEvent(
     event: Event,
     state: UserState,
+    checkDuplicates: boolean,
   ): Promise<Decision> {
     if (!state.preferences.proactiveEnabled) {
       return {
@@ -68,18 +70,20 @@ export class ProactivityEngine {
       }
     }
 
-    const duplicate = state.recentEvents.some(
-      (recentEvent) =>
-        recentEvent.type === event.type &&
-        recentEvent.source === event.source,
-    )
+    if (checkDuplicates) {
+      const duplicate = state.recentEvents.some(
+        (recentEvent) =>
+          recentEvent.type === event.type &&
+          recentEvent.source === event.source,
+      )
 
-    if (duplicate) {
-      return {
-        action: "SILENCE",
-        reason: "Duplicate event detected",
-        eventId: event.id,
-        source: "deterministic",
+      if (duplicate) {
+        return {
+          action: "SILENCE",
+          reason: "Duplicate event detected",
+          eventId: event.id,
+          source: "deterministic",
+        }
       }
     }
 
@@ -101,7 +105,7 @@ export class ProactivityEngine {
       )
     }
 
-    let recommendation
+    let recommendation: Recommendation
 
     try {
       recommendation = await this.intelligenceProvider.evaluate(
@@ -130,6 +134,52 @@ export class ProactivityEngine {
       eventId: event.id,
       source: "llm",
       recommendation,
+    }
+  }
+
+  async evaluate(
+    event: Event,
+    state: UserState,
+  ): Promise<Decision> {
+    return this.evaluateEvent(event, state, true)
+  }
+
+  async evaluateReconsideredWait(
+    wait: Recommendation,
+    event: Event,
+    state: UserState,
+    now: string,
+  ): Promise<Decision> {
+    const reconsideration = reconsiderWait(
+      wait,
+      event,
+      now,
+    )
+
+    switch (reconsideration.action) {
+      case "KEEP_WAITING":
+        return {
+          action: "WAIT",
+          reason: reconsideration.reason,
+          eventId: event.id,
+          source: "deterministic",
+          recommendation: wait,
+        }
+
+      case "EXPIRED":
+        return {
+          action: "SILENCE",
+          reason: reconsideration.reason,
+          eventId: event.id,
+          source: "deterministic",
+        }
+
+      case "RECONSIDER":
+        return this.evaluateEvent(
+          event,
+          state,
+          false,
+        )
     }
   }
 }
