@@ -121,4 +121,57 @@ describe("ProactivityEngine", () => {
       },
     })
   })
+
+  it("silences when the intelligence provider returns an invalid recommendation", async () => {
+    const provider: IntelligenceProvider = {
+      async evaluate() {
+        return {
+          action: "WAIT",
+          reason: "Need more context",
+          evidence: [],
+        } as never
+      },
+    }
+
+    const engine = new ProactivityEngine(provider)
+
+    const decision = await engine.evaluate(unknownEvent, baseState)
+
+    expect(decision).toMatchObject({
+      action: "SILENCE",
+      source: "deterministic",
+      eventId: "event-1",
+      reason: "Intelligence provider returned an invalid recommendation",
+    })
+
+    expect(decision.recommendation).toBeUndefined()
+  })
+
+  it("does not call the provider when a deterministic rule already resolves the event", async () => {
+    let providerCalled = false
+
+    const provider: IntelligenceProvider = {
+      async evaluate() {
+        providerCalled = true
+
+        return {
+          action: "SPEAK",
+          reason: "The provider wants to speak",
+          evidence: ["Provider evidence"],
+        }
+      },
+    }
+
+    const engine = new ProactivityEngine(provider)
+
+    const event: Event = {
+      ...unknownEvent,
+      type: "system",
+    }
+
+    const decision = await engine.evaluate(event, baseState)
+
+    expect(decision.action).toBe("SILENCE")
+    expect(providerCalled).toBe(false)
+  })
 })
