@@ -74,15 +74,26 @@ describe("ProactivityEngine", () => {
     })
   })
 
-  it("returns WAIT when intelligence is required but no provider is available", async () => {
+  it("returns a bounded WAIT when intelligence is required but no provider is available", async () => {
     const engine = new ProactivityEngine()
 
     const decision = await engine.evaluate(unknownEvent, baseState)
 
-    expect(decision).toMatchObject({
+    expect(decision).toEqual({
       action: "WAIT",
       source: "deterministic",
       eventId: "event-1",
+      reason: "Intelligence is required but no provider is available",
+      recommendation: {
+        action: "WAIT",
+        reason: "Intelligence is required but no provider is available",
+        evidence: [],
+        reconsiderWhen: {
+          type: "time",
+          at: "2026-01-01T10:05:00.000Z",
+        },
+        expiresAt: "2026-01-01T11:00:00.000Z",
+      },
     })
   })
 
@@ -175,7 +186,7 @@ describe("ProactivityEngine", () => {
     expect(providerCalled).toBe(false)
   })
 
-  it("returns WAIT when the intelligence provider fails", async () => {
+  it("returns a bounded WAIT when the intelligence provider fails", async () => {
     const provider: IntelligenceProvider = {
       async evaluate() {
         throw new Error("Provider unavailable")
@@ -186,11 +197,21 @@ describe("ProactivityEngine", () => {
 
     const decision = await engine.evaluate(unknownEvent, baseState)
 
-    expect(decision).toMatchObject({
+    expect(decision).toEqual({
       action: "WAIT",
       source: "deterministic",
       eventId: "event-1",
       reason: "Intelligence provider failed",
+      recommendation: {
+        action: "WAIT",
+        reason: "Intelligence provider failed",
+        evidence: [],
+        reconsiderWhen: {
+          type: "time",
+          at: "2026-01-01T10:05:00.000Z",
+        },
+        expiresAt: "2026-01-01T11:00:00.000Z",
+      },
     })
   })
 })
