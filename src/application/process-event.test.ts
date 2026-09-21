@@ -328,4 +328,94 @@ describe("processEvent", () => {
 
     expect(provider.evaluate).toHaveBeenCalledTimes(1)
   })
+
+  it("keeps WAIT when the reconsideration condition has not been met", async () => {
+    const provider = createProvider({
+      action: "WAIT",
+      reason: "More context is needed",
+      evidence: ["Insufficient context"],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
+      },
+      expiresAt: "2026-01-01T11:00:00.000Z",
+    })
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const initialResult = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    const reconsideredDecision =
+      await engine.evaluateReconsideredWait(
+        initialResult.decision.recommendation!,
+        event,
+        state,
+        "2026-01-01T10:04:00.000Z",
+      )
+
+    const interaction = await executeInteraction(
+      reconsideredDecision,
+      delivery,
+    )
+
+    expect(reconsideredDecision.action).toBe("WAIT")
+    expect(reconsideredDecision.source).toBe("deterministic")
+    expect(reconsideredDecision.reason).toBe(
+      "WAIT reconsideration condition has not been met",
+    )
+    expect(interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+    expect(provider.evaluate).toHaveBeenCalledTimes(1)
+  })
+
+  it("silences an expired WAIT without consulting intelligence again", async () => {
+    const provider = createProvider({
+      action: "WAIT",
+      reason: "More context is needed",
+      evidence: ["Insufficient context"],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
+      },
+      expiresAt: "2026-01-01T11:00:00.000Z",
+    })
+
+    const engine = new ProactivityEngine(provider)
+    const delivery = new InMemoryInteractionDelivery()
+
+    const initialResult = await processEvent(
+      event,
+      state,
+      engine,
+      delivery,
+    )
+
+    const reconsideredDecision =
+      await engine.evaluateReconsideredWait(
+        initialResult.decision.recommendation!,
+        event,
+        state,
+        "2026-01-01T11:00:00.000Z",
+      )
+
+    const interaction = await executeInteraction(
+      reconsideredDecision,
+      delivery,
+    )
+
+    expect(reconsideredDecision.action).toBe("SILENCE")
+    expect(reconsideredDecision.source).toBe("deterministic")
+    expect(reconsideredDecision.reason).toBe(
+      "WAIT has expired",
+    )
+    expect(interaction).toBeNull()
+    expect(delivery.getDelivered()).toEqual([])
+    expect(provider.evaluate).toHaveBeenCalledTimes(1)
+  })
 })
