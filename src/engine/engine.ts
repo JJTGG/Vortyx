@@ -1,6 +1,7 @@
 import type { Event } from "@/events/types"
 import type { UserState } from "@/state/types"
 import type { Decision } from "@/engine/types"
+import { determineIntelligenceNeed } from "@/engine/intelligence-gate"
 
 export class ProactivityEngine {
   evaluate(event: Event, state: UserState): Decision {
@@ -17,7 +18,7 @@ export class ProactivityEngine {
       (recentEvent) =>
         recentEvent.type === event.type &&
         recentEvent.source === event.source,
-      )
+    )
 
     if (duplicate) {
       return {
@@ -28,9 +29,20 @@ export class ProactivityEngine {
       }
     }
 
+    const intelligenceNeed = determineIntelligenceNeed(event)
+
+    if (!intelligenceNeed.required) {
+      return {
+        action: "SILENCE",
+        reason: intelligenceNeed.reason,
+        eventId: event.id,
+        source: "deterministic",
+      }
+    }
+
     return {
-      action: "SILENCE",
-      reason: "No deterministic rule justifies an interaction",
+      action: "WAIT",
+      reason: intelligenceNeed.reason,
       eventId: event.id,
       source: "deterministic",
     }
