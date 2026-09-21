@@ -1,20 +1,17 @@
-import type { ReconsiderCondition } from "@/engine/types"
+import type {
+  Recommendation,
+  ReconsiderCondition,
+} from "@/engine/types"
 
-export type WaitDecision = {
-  action: "WAIT"
-  reason: string
-  reconsiderWhen: ReconsiderCondition
-  expiresAt: string
-}
-
-export function createWaitDecision(
+export function createWaitRecommendation(
   reason: string,
   reconsiderWhen: ReconsiderCondition,
   expiresAt: string,
-): WaitDecision {
+): Recommendation {
   return {
     action: "WAIT",
     reason,
+    evidence: [],
     reconsiderWhen,
     expiresAt,
   }
