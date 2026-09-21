@@ -1,10 +1,18 @@
 import type { Event } from "@/events/types"
-import type { UserState } from "@/state/types"
 import type { Decision } from "@/engine/types"
 import { determineIntelligenceNeed } from "@/engine/intelligence-gate"
+import type { IntelligenceProvider } from "@/intelligence/provider"
+import type { UserState } from "@/state/types"
 
 export class ProactivityEngine {
-  evaluate(event: Event, state: UserState): Decision {
+  constructor(
+    private readonly intelligenceProvider?: IntelligenceProvider,
+  ) {}
+
+  async evaluate(
+    event: Event,
+    state: UserState,
+  ): Promise<Decision> {
     if (!state.preferences.proactiveEnabled) {
       return {
         action: "SILENCE",
@@ -40,11 +48,26 @@ export class ProactivityEngine {
       }
     }
 
+    if (!this.intelligenceProvider) {
+      return {
+        action: "WAIT",
+        reason: "Intelligence is required but no provider is available",
+        eventId: event.id,
+        source: "deterministic",
+      }
+    }
+
+    const recommendation = await this.intelligenceProvider.evaluate(
+      event,
+      state,
+    )
+
     return {
-      action: "WAIT",
-      reason: intelligenceNeed.reason,
+      action: recommendation.action,
+      reason: recommendation.reason,
       eventId: event.id,
-      source: "deterministic",
+      source: "llm",
+      recommendation,
     }
   }
 }
