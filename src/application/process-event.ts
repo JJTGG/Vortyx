@@ -1,5 +1,7 @@
 import type { Event } from "@/events/types"
 import type { ProactivityEngine } from "@/engine/engine"
+import { beginEvaluation, transitionFromDecision } from "@/lifecycle/transition"
+import type { EventLifecycleState } from "@/lifecycle/types"
 import type { InteractionDelivery } from "@/interaction/delivery"
 import { executeInteraction } from "@/interaction/execute"
 import type { InteractionRequest } from "@/interaction/types"
@@ -9,6 +11,7 @@ import type { UserState } from "@/state/types"
 export type ProcessEventResult = {
   decision: Awaited<ReturnType<ProactivityEngine["evaluate"]>>
   interaction: InteractionRequest | null
+  lifecycle: EventLifecycleState
 }
 
 export async function processEvent(
@@ -18,7 +21,16 @@ export async function processEvent(
   delivery: InteractionDelivery,
   decisionLog?: DecisionLog,
 ): Promise<ProcessEventResult> {
+  const observedState: EventLifecycleState = "OBSERVED"
+
+  const evaluatingState = beginEvaluation(observedState)
+
   const decision = await engine.evaluate(event, state)
+
+  const lifecycle = transitionFromDecision(
+    evaluatingState,
+    decision.action,
+  )
 
   decisionLog?.record({
     eventId: decision.eventId,
@@ -37,5 +49,6 @@ export async function processEvent(
   return {
     decision,
     interaction,
+    lifecycle,
   }
 }
