@@ -204,6 +204,52 @@ describe("process wait queue", () => {
     expect(delivery.getDelivered()).toEqual([])
   })
 
+  it("replaces a due WAIT with a new WAIT recommendation", async () => {
+    const newWait: Recommendation = {
+      action: "WAIT",
+      reason: "Need another five minutes",
+      evidence: ["More time is still needed"],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-09-22T04:10:00.000Z",
+      },
+      expiresAt: "2026-09-22T05:00:00.000Z",
+    }
+
+    const provider: IntelligenceProvider = {
+      async evaluate(): Promise<Recommendation> {
+        return newWait
+      },
+    }
+
+    const engine = new ProactivityEngine(provider)
+    const queue = new InMemoryWaitQueue()
+    const delivery = new InMemoryInteractionDelivery()
+
+    enqueueWait(queue)
+
+    const result = await processWaitQueue(
+      "2026-09-22T04:05:00.000Z",
+      state,
+      engine,
+      queue,
+      delivery,
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0].decision.action).toBe("WAIT")
+    expect(result[0].lifecycle).toBe("QUEUED")
+    expect(result[0].interaction).toBeNull()
+
+    expect(queue.getAll()).toHaveLength(1)
+    expect(queue.getAll()[0].recommendation).toEqual(
+      newWait,
+    )
+    expect(queue.getAll()[0].queuedAt).toBe(
+      "2026-09-22T04:05:00.000Z",
+    )
+  })
+
   it("does nothing when the queue has no due entries", async () => {
     const engine = new ProactivityEngine()
     const queue = new InMemoryWaitQueue()
