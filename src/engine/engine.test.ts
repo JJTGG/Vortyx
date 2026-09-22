@@ -4,6 +4,7 @@ import type { Recommendation } from "@/engine/types"
 import { ProactivityEngine } from "@/engine/engine"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { UserState } from "@/state/types"
+import { InMemoryInteractionHistory } from "@/interaction/in-memory-history"
 
 const unknownEvent: Event = {
   id: "event-1",
@@ -80,6 +81,43 @@ describe("ProactivityEngine", () => {
     expect(decision).toEqual({
       action: "SILENCE",
       reason: "Duplicate event detected",
+      eventId: "event-1",
+      source: "deterministic",
+    })
+  })
+
+  it("silences when the proactive interaction cooldown is active", async () => {
+    const history = new InMemoryInteractionHistory()
+
+    history.record({
+      eventId: "previous-event",
+      message: "Previous proactive message",
+      reason: "Previous interaction",
+      initiatedAt: "2026-01-01T09:45:00.000Z",
+    })
+
+    const provider: IntelligenceProvider = {
+      async evaluate(): Promise<Recommendation> {
+        throw new Error(
+          "Provider should not be called during cooldown",
+        )
+      },
+    }
+
+    const engine = new ProactivityEngine(
+      provider,
+      undefined,
+      history,
+    )
+
+    const decision = await engine.evaluate(
+      unknownEvent,
+      baseState,
+    )
+
+    expect(decision).toEqual({
+      action: "SILENCE",
+      reason: "Proactive interaction cooldown is active",
       eventId: "event-1",
       source: "deterministic",
     })
