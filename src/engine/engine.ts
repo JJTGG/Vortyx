@@ -6,6 +6,7 @@ import { validateRecommendation } from "@/engine/validate-recommendation"
 import { createWaitRecommendation } from "@/engine/wait"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { EvaluationContext } from "@/intelligence/context"
+import { RuleBasedIntelligenceProvider } from "@/intelligence/rule-based"
 import type { FeedbackQuery } from "@/feedback/query"
 import { getFeedbackContext } from "@/feedback/context"
 import type { UserState } from "@/state/types"
@@ -55,10 +56,19 @@ function createBoundedWait(
 }
 
 export class ProactivityEngine {
+  private readonly intelligenceProvider: IntelligenceProvider
+  private readonly feedbackQuery?: FeedbackQuery
+
   constructor(
-    private readonly intelligenceProvider?: IntelligenceProvider,
-    private readonly feedbackQuery?: FeedbackQuery,
-  ) {}
+    intelligenceProvider?: IntelligenceProvider,
+    feedbackQuery?: FeedbackQuery,
+  ) {
+    this.intelligenceProvider =
+      intelligenceProvider ??
+      new RuleBasedIntelligenceProvider()
+
+    this.feedbackQuery = feedbackQuery
+  }
 
   private buildEvaluationContext(
     eventId: string,
@@ -117,13 +127,6 @@ export class ProactivityEngine {
         eventId: event.id,
         source: "deterministic",
       }
-    }
-
-    if (!this.intelligenceProvider) {
-      return createBoundedWait(
-        event,
-        "Intelligence is required but no provider is available",
-      )
     }
 
     const context = this.buildEvaluationContext(event.id)
