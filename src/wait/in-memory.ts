@@ -1,6 +1,7 @@
 import type {
   WaitQueue,
   WaitQueueEntry,
+  WaitQueueTrigger,
 } from "@/wait/types"
 
 export class InMemoryWaitQueue implements WaitQueue {
@@ -10,35 +11,66 @@ export class InMemoryWaitQueue implements WaitQueue {
     this.entries.push(entry)
   }
 
-  getDue(now: string): WaitQueueEntry[] {
-    const nowTime = Date.parse(now)
+  getDue(trigger: WaitQueueTrigger): WaitQueueEntry[] {
+    const nowTime = Date.parse(trigger.now)
 
     if (Number.isNaN(nowTime)) {
-      throw new Error("Wait queue requires a valid current timestamp")
+      throw new Error(
+        "Wait queue requires a valid current timestamp",
+      )
     }
 
     return this.entries.filter((entry) => {
-      const reconsiderAt =
-        entry.recommendation.action === "WAIT"
-          ? entry.recommendation.reconsiderWhen
-          : null
-
-      if (
-        !reconsiderAt ||
-        reconsiderAt.type !== "time"
-      ) {
+      if (entry.recommendation.action !== "WAIT") {
         return false
       }
 
-      const reconsiderTime = Date.parse(
-        reconsiderAt.at,
+      const recommendation = entry.recommendation
+
+      const expiryTime = Date.parse(
+        recommendation.expiresAt,
       )
 
-      if (Number.isNaN(reconsiderTime)) {
-        return false
+      if (
+        !Number.isNaN(expiryTime) &&
+        expiryTime <= nowTime
+      ) {
+        return true
       }
 
-      return reconsiderTime <= nowTime
+      switch (recommendation.reconsiderWhen.type) {
+        case "time": {
+          const reconsiderTime = Date.parse(
+            recommendation.reconsiderWhen.at,
+          )
+
+          return (
+            !Number.isNaN(reconsiderTime) &&
+            reconsiderTime <= nowTime
+          )
+        }
+
+        case "event":
+          return (
+            trigger.event?.type ===
+            recommendation.reconsiderWhen.eventType
+          )
+
+        case "state_change":
+          return (
+            trigger.event !== undefined &&
+            Object.prototype.hasOwnProperty.call(
+              trigger.event.data,
+              recommendation.reconsiderWhen.field,
+            )
+          )
+
+        case "new_evidence":
+          return (
+            trigger.event !== undefined &&
+            Object.keys(trigger.event.data).length > 0
+          )
+      }
     })
   }
 
