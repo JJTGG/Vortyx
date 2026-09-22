@@ -10,7 +10,7 @@ import { executeInteraction } from "@/interaction/execute"
 import type { InteractionRequest } from "@/interaction/types"
 import type { InteractionHistory } from "@/interaction/history"
 import type { DecisionLog } from "@/decision-log/types"
-import type { WaitQueue, WaitQueueEntry } from "@/wait/types"
+import type { WaitQueue } from "@/wait/types"
 import type { UserState } from "@/state/types"
 
 export type ProcessWaitQueueResult = {
@@ -56,8 +56,17 @@ export async function processWaitQueue(
       recordedAt: now,
     })
 
-    if (decision.action !== "WAIT") {
-      queue.remove(entry.event.id)
+    queue.remove(entry.event.id)
+
+    if (
+      decision.action === "WAIT" &&
+      decision.recommendation?.action === "WAIT"
+    ) {
+      queue.enqueue({
+        event: entry.event,
+        recommendation: decision.recommendation,
+        queuedAt: now,
+      })
     }
 
     const interaction = await executeInteraction(
