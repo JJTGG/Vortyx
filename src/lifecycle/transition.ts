@@ -36,3 +36,31 @@ export function beginEvaluation(
     ? "RE_EVALUATING"
     : "EVALUATING"
 }
+
+export function transitionFromInitiated(
+  state: EventLifecycleState,
+  outcome: "USER_RESPONDED" | "IGNORED",
+): EventLifecycleState {
+  if (state !== "INITIATED") {
+    throw new Error(
+      `Interaction outcome cannot be applied from lifecycle state: ${state}`,
+    )
+  }
+
+  return outcome
+}
+
+export function transitionToFeedback(
+  state: EventLifecycleState,
+): EventLifecycleState {
+  if (
+    state !== "USER_RESPONDED" &&
+    state !== "IGNORED"
+  ) {
+    throw new Error(
+      `Feedback cannot begin from lifecycle state: ${state}`,
+    )
+  }
+
+  return "FEEDBACK"
+}
