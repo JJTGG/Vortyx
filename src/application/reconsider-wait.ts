@@ -9,6 +9,7 @@ import type { EventLifecycleState } from "@/lifecycle/types"
 import type { InteractionDelivery } from "@/interaction/delivery"
 import { executeInteraction } from "@/interaction/execute"
 import type { InteractionRequest } from "@/interaction/types"
+import type { InteractionHistory } from "@/interaction/history"
 import type { DecisionLog } from "@/decision-log/types"
 import type { UserState } from "@/state/types"
 
@@ -28,6 +29,7 @@ export async function reconsiderWait(
   delivery: InteractionDelivery,
   now: string,
   decisionLog?: DecisionLog,
+  interactionHistory?: InteractionHistory,
 ): Promise<ReconsiderWaitResult> {
   const reEvaluatingState = beginEvaluation("QUEUED")
 
@@ -56,6 +58,13 @@ export async function reconsiderWait(
     decision,
     delivery,
   )
+
+  if (interaction !== null) {
+    interactionHistory?.record({
+      ...interaction,
+      initiatedAt: event.timestamp,
+    })
+  }
 
   return {
     decision,
