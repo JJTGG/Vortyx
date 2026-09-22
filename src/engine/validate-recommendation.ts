@@ -86,6 +86,17 @@ export function validateRecommendation(
     ) {
       return false
     }
+
+    if (value.reconsiderWhen.type === "time") {
+      const reconsiderationTime = Date.parse(
+        value.reconsiderWhen.at,
+      )
+      const expiryTime = Date.parse(value.expiresAt)
+
+      if (expiryTime <= reconsiderationTime) {
+        return false
+      }
+    }
   }
 
   return true
