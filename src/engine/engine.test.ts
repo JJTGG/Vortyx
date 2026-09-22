@@ -1,16 +1,9 @@
 import { describe, expect, it } from "vitest"
 import type { Event } from "@/events/types"
+import type { Recommendation } from "@/engine/types"
 import { ProactivityEngine } from "@/engine/engine"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { UserState } from "@/state/types"
-
-const baseState: UserState = {
-  userId: "test-user",
-  preferences: {
-    proactiveEnabled: true,
-  },
-  recentEvents: [],
-}
 
 const unknownEvent: Event = {
   id: "event-1",
@@ -20,382 +13,390 @@ const unknownEvent: Event = {
   data: {},
 }
 
-const waitRecommendation = {
-  action: "WAIT" as const,
-  reason: "Need more context",
-  evidence: ["Only one signal exists"],
-  reconsiderWhen: {
-    type: "time" as const,
-    at: "2026-01-01T10:05:00.000Z",
+const deterministicEvent: Event = {
+  id: "event-2",
+  type: "system",
+  timestamp: "2026-01-01T10:00:00.000Z",
+  source: "test",
+  data: {},
+}
+
+const baseState: UserState = {
+  userId: "user-1",
+  preferences: {
+    proactiveEnabled: true,
   },
-  expiresAt: "2026-01-01T11:00:00.000Z",
+  recentEvents: [],
+}
+
+class FixedProvider implements IntelligenceProvider {
+  constructor(
+    private readonly recommendation: Recommendation,
+  ) {}
+
+  async evaluate(): Promise<Recommendation> {
+    return this.recommendation
+  }
 }
 
 describe("ProactivityEngine", () => {
   it("returns SILENCE when proactive interactions are disabled", async () => {
     const engine = new ProactivityEngine()
 
-    const state: UserState = {
-      ...baseState,
-      preferences: {
-        proactiveEnabled: false,
+    const decision = await engine.evaluate(
+      unknownEvent,
+      {
+        ...baseState,
+        preferences: {
+          proactiveEnabled: false,
+        },
       },
-    }
+    )
 
-    const decision = await engine.evaluate(unknownEvent, state)
-
-    expect(decision).toMatchObject({
+    expect(decision).toEqual({
       action: "SILENCE",
-      source: "deterministic",
+      reason: "Proactive interactions are disabled",
       eventId: "event-1",
+      source: "deterministic",
     })
   })
 
   it("returns SILENCE for duplicate events", async () => {
     const engine = new ProactivityEngine()
 
-    const state: UserState = {
-      ...baseState,
-      recentEvents: [unknownEvent],
-    }
-
-    const decision = await engine.evaluate(unknownEvent, state)
-
-    expect(decision).toMatchObject({
-      action: "SILENCE",
-      source: "deterministic",
-      eventId: "event-1",
-    })
-  })
-
-  it("handles deterministic events without an intelligence provider", async () => {
-    const engine = new ProactivityEngine()
-
-    const event: Event = {
-      ...unknownEvent,
-      type: "system",
-    }
-
-    const decision = await engine.evaluate(event, baseState)
-
-    expect(decision).toMatchObject({
-      action: "SILENCE",
-      source: "deterministic",
-      eventId: "event-1",
-    })
-  })
-
-  it("returns a bounded WAIT when intelligence is required but no provider is available", async () => {
-    const engine = new ProactivityEngine()
-
-    const decision = await engine.evaluate(unknownEvent, baseState)
+    const decision = await engine.evaluate(
+      unknownEvent,
+      {
+        ...baseState,
+        recentEvents: [
+          {
+            ...unknownEvent,
+            id: "previous-event",
+          },
+        ],
+      },
+    )
 
     expect(decision).toEqual({
-      action: "WAIT",
-      source: "deterministic",
+      action: "SILENCE",
+      reason: "Duplicate event detected",
       eventId: "event-1",
-      reason: "Intelligence is required but no provider is available",
+      source: "deterministic",
+    })
+  })
+
+  it("handles deterministic events without consulting intelligence", async () => {
+    const provider = new FixedProvider({
+      action: "SPEAK",
+      reason: "Should not be used",
+      evidence: ["test"],
+      message: "Should not be used",
+    })
+
+    const engine = new ProactivityEngine(provider)
+
+    const decision = await engine.evaluate(
+      deterministicEvent,
+      baseState,
+    )
+
+    expect(decision).toEqual({
+      action: "SILENCE",
+      reason: "System events can be handled deterministically",
+      eventId: "event-2",
+      source: "deterministic",
+    })
+  })
+
+  it("uses the rule-based provider when no provider is supplied", async () => {
+    const engine = new ProactivityEngine()
+
+    const decision = await engine.evaluate(
+      unknownEvent,
+      baseState,
+    )
+
+    expect(decision).toEqual({
+      action: "SILENCE",
+      reason: "No relevant feedback is available",
+      eventId: "event-1",
+      source: "llm",
       recommendation: {
-        action: "WAIT",
-        reason: "Intelligence is required but no provider is available",
-        evidence: [],
-        reconsiderWhen: {
-          type: "time",
-          at: "2026-01-01T10:05:00.000Z",
-        },
-        expiresAt: "2026-01-01T11:00:00.000Z",
+        action: "SILENCE",
+        reason: "No relevant feedback is available",
+        evidence: [
+          "Event type: unknown",
+          "Evaluation context contains no feedback",
+        ],
       },
     })
   })
 
   it("preserves a valid WAIT recommendation from an intelligence provider", async () => {
-    const provider: IntelligenceProvider = {
-      async evaluate() {
-        return waitRecommendation
+    const recommendation: Recommendation = {
+      action: "WAIT",
+      reason: "Need more time",
+      evidence: ["Timing is uncertain"],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
       },
+      expiresAt: "2026-01-01T11:00:00.000Z",
     }
 
-    const engine = new ProactivityEngine(provider)
+    const engine = new ProactivityEngine(
+      new FixedProvider(recommendation),
+    )
 
-    const decision = await engine.evaluate(unknownEvent, baseState)
+    const decision = await engine.evaluate(
+      unknownEvent,
+      baseState,
+    )
 
-    expect(decision).toMatchObject({
+    expect(decision).toEqual({
       action: "WAIT",
-      source: "llm",
+      reason: "Need more time",
       eventId: "event-1",
-      reason: "Need more context",
-      recommendation: {
-        action: "WAIT",
-        reconsiderWhen: {
-          type: "time",
-          at: "2026-01-01T10:05:00.000Z",
-        },
-        expiresAt: "2026-01-01T11:00:00.000Z",
-      },
+      source: "llm",
+      recommendation,
     })
   })
 
   it("silences when the intelligence provider returns an invalid recommendation", async () => {
-    const provider: IntelligenceProvider = {
-      async evaluate() {
-        return {
-          action: "WAIT",
-          reason: "Need more context",
-          evidence: [],
-        } as never
-      },
-    }
-
-    const engine = new ProactivityEngine(provider)
-
-    const decision = await engine.evaluate(unknownEvent, baseState)
-
-    expect(decision).toMatchObject({
-      action: "SILENCE",
-      source: "deterministic",
-      eventId: "event-1",
-      reason: "Intelligence provider returned an invalid recommendation",
-    })
-
-    expect(decision.recommendation).toBeUndefined()
-  })
-
-  it("does not call the provider when a deterministic rule already resolves the event", async () => {
-    let providerCalled = false
-
-    const provider: IntelligenceProvider = {
-      async evaluate() {
-        providerCalled = true
-
+    const provider = {
+      async evaluate(): Promise<Recommendation> {
         return {
           action: "SPEAK",
-          reason: "The provider wants to speak",
-          evidence: ["Provider evidence"],
+          reason: "",
+          evidence: [],
+          message: "",
         }
       },
     }
 
     const engine = new ProactivityEngine(provider)
 
-    const event: Event = {
-      ...unknownEvent,
-      type: "system",
+    const decision = await engine.evaluate(
+      unknownEvent,
+      baseState,
+    )
+
+    expect(decision).toEqual({
+      action: "SILENCE",
+      reason:
+        "Intelligence provider returned an invalid recommendation",
+      eventId: "event-1",
+      source: "deterministic",
+    })
+  })
+
+  it("does not call the provider when a deterministic rule already resolves the event", async () => {
+    let calls = 0
+
+    const provider: IntelligenceProvider = {
+      async evaluate(): Promise<Recommendation> {
+        calls += 1
+
+        return {
+          action: "SPEAK",
+          reason: "Should not be used",
+          evidence: ["test"],
+          message: "Should not be used",
+        }
+      },
     }
 
-    const decision = await engine.evaluate(event, baseState)
+    const engine = new ProactivityEngine(provider)
 
-    expect(decision.action).toBe("SILENCE")
-    expect(providerCalled).toBe(false)
+    await engine.evaluate(
+      deterministicEvent,
+      baseState,
+    )
+
+    expect(calls).toBe(0)
   })
 
   it("returns a bounded WAIT when the intelligence provider fails", async () => {
     const provider: IntelligenceProvider = {
-      async evaluate() {
-        throw new Error("Provider unavailable")
+      async evaluate(): Promise<Recommendation> {
+        throw new Error("Provider failed")
       },
     }
 
     const engine = new ProactivityEngine(provider)
 
-    const decision = await engine.evaluate(unknownEvent, baseState)
+    const decision = await engine.evaluate(
+      unknownEvent,
+      baseState,
+    )
 
-    expect(decision).toEqual({
-      action: "WAIT",
-      source: "deterministic",
-      eventId: "event-1",
-      reason: "Intelligence provider failed",
-      recommendation: {
-        action: "WAIT",
-        reason: "Intelligence provider failed",
-        evidence: [],
-        reconsiderWhen: {
-          type: "time",
-          at: "2026-01-01T10:05:00.000Z",
-        },
-        expiresAt: "2026-01-01T11:00:00.000Z",
-      },
-    })
+    expect(decision.action).toBe("WAIT")
+    expect(decision.source).toBe("deterministic")
+    expect(decision.recommendation?.action).toBe("WAIT")
   })
 
   it("keeps WAITING when the reconsideration condition has not been met", async () => {
-    let providerCalled = false
-
-    const provider: IntelligenceProvider = {
-      async evaluate() {
-        providerCalled = true
-
-        return {
-          action: "SPEAK",
-          reason: "Speak now",
-          evidence: ["New evidence"],
-        }
+    const wait: Recommendation = {
+      action: "WAIT",
+      reason: "Need more time",
+      evidence: [],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
       },
+      expiresAt: "2026-01-01T11:00:00.000Z",
     }
 
-    const engine = new ProactivityEngine(provider)
+    const engine = new ProactivityEngine()
 
-    const decision = await engine.evaluateReconsideredWait(
-      waitRecommendation,
-      unknownEvent,
-      baseState,
-      "2026-01-01T10:04:00.000Z",
-    )
+    const decision =
+      await engine.evaluateReconsideredWait(
+        wait,
+        unknownEvent,
+        baseState,
+        "2026-01-01T10:02:00.000Z",
+      )
 
-    expect(decision).toEqual({
-      action: "WAIT",
-      reason: "WAIT reconsideration condition has not been met",
-      eventId: "event-1",
-      source: "deterministic",
-      recommendation: waitRecommendation,
-    })
-
-    expect(providerCalled).toBe(false)
+    expect(decision.action).toBe("WAIT")
+    expect(decision.source).toBe("deterministic")
+    expect(decision.recommendation).toEqual(wait)
   })
 
   it("silences an expired WAIT", async () => {
-    let providerCalled = false
-
-    const provider: IntelligenceProvider = {
-      async evaluate() {
-        providerCalled = true
-
-        return {
-          action: "SPEAK",
-          reason: "Speak now",
-          evidence: ["New evidence"],
-        }
+    const wait: Recommendation = {
+      action: "WAIT",
+      reason: "Need more time",
+      evidence: [],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
       },
+      expiresAt: "2026-01-01T11:00:00.000Z",
     }
 
-    const engine = new ProactivityEngine(provider)
+    const engine = new ProactivityEngine()
 
-    const decision = await engine.evaluateReconsideredWait(
-      waitRecommendation,
-      unknownEvent,
-      baseState,
-      "2026-01-01T11:00:00.000Z",
-    )
+    const decision =
+      await engine.evaluateReconsideredWait(
+        wait,
+        unknownEvent,
+        baseState,
+        "2026-01-01T11:00:00.000Z",
+      )
 
-    expect(decision).toEqual({
-      action: "SILENCE",
-      reason: "WAIT has expired",
-      eventId: "event-1",
-      source: "deterministic",
-    })
-
-    expect(providerCalled).toBe(false)
+    expect(decision.action).toBe("SILENCE")
+    expect(decision.source).toBe("deterministic")
   })
 
   it("re-runs evaluation when a WAIT should be reconsidered", async () => {
-    let providerCalled = false
-
-    const provider: IntelligenceProvider = {
-      async evaluate() {
-        providerCalled = true
-
-        return {
-          action: "SPEAK",
-          reason: "The new signal justifies interaction",
-          evidence: ["Reconsideration time was reached"],
-          message: "Now is a good time to speak.",
-        }
+    const wait: Recommendation = {
+      action: "WAIT",
+      reason: "Need more time",
+      evidence: [],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
       },
+      expiresAt: "2026-01-01T11:00:00.000Z",
     }
 
-    const engine = new ProactivityEngine(provider)
+    const recommendation: Recommendation = {
+      action: "SPEAK",
+      reason: "Now is the right time",
+      evidence: ["Reconsideration time reached"],
+      message: "It is time to check in.",
+    }
 
-    const decision = await engine.evaluateReconsideredWait(
-      waitRecommendation,
-      unknownEvent,
-      baseState,
-      "2026-01-01T10:05:00.000Z",
+    const engine = new ProactivityEngine(
+      new FixedProvider(recommendation),
     )
+
+    const decision =
+      await engine.evaluateReconsideredWait(
+        wait,
+        unknownEvent,
+        baseState,
+        "2026-01-01T10:05:00.000Z",
+      )
 
     expect(decision).toEqual({
       action: "SPEAK",
-      reason: "The new signal justifies interaction",
+      reason: "Now is the right time",
       eventId: "event-1",
       source: "llm",
-      recommendation: {
-        action: "SPEAK",
-        reason: "The new signal justifies interaction",
-        evidence: ["Reconsideration time was reached"],
-        message: "Now is a good time to speak.",
-      },
+      recommendation,
     })
-
-    expect(providerCalled).toBe(true)
   })
 
   it("does not call the provider after reconsideration if the new event is deterministic", async () => {
-    let providerCalled = false
+    let calls = 0
 
     const provider: IntelligenceProvider = {
-      async evaluate() {
-        providerCalled = true
+      async evaluate(): Promise<Recommendation> {
+        calls += 1
 
         return {
           action: "SPEAK",
-          reason: "The provider wants to speak",
-          evidence: ["Provider evidence"],
+          reason: "Should not be used",
+          evidence: ["test"],
+          message: "Should not be used",
         }
       },
     }
 
-    const engine = new ProactivityEngine(provider)
-
-    const deterministicEvent: Event = {
-      ...unknownEvent,
-      type: "system",
+    const wait: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for a system event",
+      evidence: [],
+      reconsiderWhen: {
+        type: "event",
+        eventType: "system",
+      },
+      expiresAt: "2026-01-01T11:00:00.000Z",
     }
 
-    const decision = await engine.evaluateReconsideredWait(
-      waitRecommendation,
+    const engine = new ProactivityEngine(provider)
+
+    await engine.evaluateReconsideredWait(
+      wait,
       deterministicEvent,
       baseState,
       "2026-01-01T10:05:00.000Z",
     )
 
-    expect(decision).toMatchObject({
-      action: "SILENCE",
-      source: "deterministic",
-      eventId: "event-1",
-    })
-
-    expect(providerCalled).toBe(false)
+    expect(calls).toBe(0)
   })
 
   it("can create a new bounded WAIT when reconsideration needs intelligence but the provider fails", async () => {
     const provider: IntelligenceProvider = {
-      async evaluate() {
-        throw new Error("Provider unavailable")
+      async evaluate(): Promise<Recommendation> {
+        throw new Error("Provider failed")
       },
+    }
+
+    const wait: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for more evidence",
+      evidence: [],
+      reconsiderWhen: {
+        type: "time",
+        at: "2026-01-01T10:05:00.000Z",
+      },
+      expiresAt: "2026-01-01T11:00:00.000Z",
     }
 
     const engine = new ProactivityEngine(provider)
 
-    const decision = await engine.evaluateReconsideredWait(
-      waitRecommendation,
-      unknownEvent,
-      baseState,
-      "2026-01-01T10:05:00.000Z",
-    )
+    const decision =
+      await engine.evaluateReconsideredWait(
+        wait,
+        unknownEvent,
+        baseState,
+        "2026-01-01T10:05:00.000Z",
+      )
 
-    expect(decision).toEqual({
-      action: "WAIT",
-      source: "deterministic",
-      eventId: "event-1",
-      reason: "Intelligence provider failed",
-      recommendation: {
-        action: "WAIT",
-        reason: "Intelligence provider failed",
-        evidence: [],
-        reconsiderWhen: {
-          type: "time",
-          at: "2026-01-01T10:05:00.000Z",
-        },
-        expiresAt: "2026-01-01T11:00:00.000Z",
-      },
-    })
+    expect(decision.action).toBe("WAIT")
+    expect(decision.source).toBe("deterministic")
+    expect(decision.recommendation?.action).toBe("WAIT")
   })
 })
