@@ -29,7 +29,9 @@ export async function processWaitQueue(
   decisionLog?: DecisionLog,
   interactionHistory?: InteractionHistory,
 ): Promise<ProcessWaitQueueResult[]> {
-  const dueEntries = queue.getDue(now)
+  const dueEntries = queue.getDue({
+  now,
+})
   const results: ProcessWaitQueueResult[] = []
 
   for (const entry of dueEntries) {
