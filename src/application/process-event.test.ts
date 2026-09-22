@@ -563,9 +563,11 @@ describe("processEvent", () => {
       delivery,
     )
 
-    expect(result.decision.action).toBe("WAIT")
-    expect(result.decision.source).toBe("llm")
-    expect(result.decision.recommendation?.action).toBe("WAIT")
+    expect(result.decision.action).toBe("SILENCE")
+    expect(result.decision.source).toBe("deterministic")
+    expect(result.decision.reason).toBe(
+      "Intelligence provider returned an invalid recommendation",
+    )
     expect(result.interaction).toBeNull()
     expect(delivery.getDelivered()).toEqual([])
   })
