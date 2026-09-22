@@ -2,11 +2,15 @@ import type { Event } from "@/events/types"
 import type { Recommendation } from "@/engine/types"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { UserState } from "@/state/types"
+import type { EvaluationContext } from "@/intelligence/context"
 
-export class FakeIntelligenceProvider implements IntelligenceProvider {
+export class FakeIntelligenceProvider
+  implements IntelligenceProvider
+{
   async evaluate(
     event: Event,
     _state: UserState,
+    _context: EvaluationContext,
   ): Promise<Recommendation> {
     return {
       action: "SPEAK",
