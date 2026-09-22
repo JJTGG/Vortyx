@@ -4,11 +4,13 @@ import { determineIntelligenceNeed } from "@/engine/intelligence-gate"
 import { reconsiderWait } from "@/engine/reconsider-wait"
 import { validateRecommendation } from "@/engine/validate-recommendation"
 import { createWaitRecommendation } from "@/engine/wait"
+import { isWithinProactiveCooldown } from "@/engine/cooldown"
 import type { IntelligenceProvider } from "@/intelligence/provider"
 import type { EvaluationContext } from "@/intelligence/context"
 import { RuleBasedIntelligenceProvider } from "@/intelligence/rule-based"
 import type { FeedbackQuery } from "@/feedback/query"
 import { getFeedbackContext } from "@/feedback/context"
+import type { InteractionHistory } from "@/interaction/history"
 import type { UserState } from "@/state/types"
 
 const WAIT_RECONSIDER_DELAY_MS = 5 * 60 * 1000
@@ -58,16 +60,19 @@ function createBoundedWait(
 export class ProactivityEngine {
   private readonly intelligenceProvider: IntelligenceProvider
   private readonly feedbackQuery?: FeedbackQuery
+  private readonly interactionHistory?: InteractionHistory
 
   constructor(
     intelligenceProvider?: IntelligenceProvider,
     feedbackQuery?: FeedbackQuery,
+    interactionHistory?: InteractionHistory,
   ) {
     this.intelligenceProvider =
       intelligenceProvider ??
       new RuleBasedIntelligenceProvider()
 
     this.feedbackQuery = feedbackQuery
+    this.interactionHistory = interactionHistory
   }
 
   private buildEvaluationContext(
@@ -115,6 +120,21 @@ export class ProactivityEngine {
           eventId: event.id,
           source: "deterministic",
         }
+      }
+    }
+
+    if (
+      this.interactionHistory &&
+      isWithinProactiveCooldown(
+        event.timestamp,
+        this.interactionHistory,
+      )
+    ) {
+      return {
+        action: "SILENCE",
+        reason: "Proactive interaction cooldown is active",
+        eventId: event.id,
+        source: "deterministic",
       }
     }
 
