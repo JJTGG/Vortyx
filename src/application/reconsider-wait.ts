@@ -1,6 +1,11 @@
 import type { Event } from "@/events/types"
 import type { ProactivityEngine } from "@/engine/engine"
 import type { Recommendation } from "@/engine/types"
+import {
+  beginEvaluation,
+  transitionFromDecision,
+} from "@/lifecycle/transition"
+import type { EventLifecycleState } from "@/lifecycle/types"
 import type { InteractionDelivery } from "@/interaction/delivery"
 import { executeInteraction } from "@/interaction/execute"
 import type { InteractionRequest } from "@/interaction/types"
@@ -12,6 +17,7 @@ export type ReconsiderWaitResult = {
     ReturnType<ProactivityEngine["evaluateReconsideredWait"]>
   >
   interaction: InteractionRequest | null
+  lifecycle: EventLifecycleState
 }
 
 export async function reconsiderWait(
@@ -23,11 +29,18 @@ export async function reconsiderWait(
   now: string,
   decisionLog?: DecisionLog,
 ): Promise<ReconsiderWaitResult> {
+  const reEvaluatingState = beginEvaluation("QUEUED")
+
   const decision = await engine.evaluateReconsideredWait(
     wait,
     event,
     state,
     now,
+  )
+
+  const lifecycle = transitionFromDecision(
+    reEvaluatingState,
+    decision.action,
   )
 
   decisionLog?.record({
@@ -47,5 +60,6 @@ export async function reconsiderWait(
   return {
     decision,
     interaction,
+    lifecycle,
   }
 }
