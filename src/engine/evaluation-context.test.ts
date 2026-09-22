@@ -25,28 +25,37 @@ const state: UserState = {
   recentEvents: [],
 }
 
-class ContextCapturingProvider
+class ContextAwareProvider
   implements IntelligenceProvider
 {
-  context: EvaluationContext | null = null
-
   async evaluate(
     _event: Event,
     _state: UserState,
     context: EvaluationContext,
   ): Promise<Recommendation> {
-    this.context = context
+    if (context.feedback.length > 0) {
+      return {
+        action: "SPEAK",
+        reason: "Previous feedback supports an interaction",
+        evidence: [
+          "Relevant feedback is available",
+        ],
+        message: "This interaction is informed by previous feedback.",
+      }
+    }
 
     return {
       action: "SILENCE",
-      reason: "Test provider",
-      evidence: [],
+      reason: "No relevant feedback is available",
+      evidence: [
+        "Evaluation context contains no feedback",
+      ],
     }
   }
 }
 
 describe("engine evaluation context", () => {
-  it("passes relevant feedback to the intelligence provider", async () => {
+  it("allows the intelligence provider to use relevant feedback", async () => {
     const feedback = new InMemoryFeedbackRecorder()
 
     feedback.record({
@@ -57,7 +66,7 @@ describe("engine evaluation context", () => {
       recordedAt: "2026-09-22T04:01:00.000Z",
     })
 
-    const provider = new ContextCapturingProvider()
+    const provider = new ContextAwareProvider()
 
     const engine = new ProactivityEngine(
       provider,
@@ -69,29 +78,38 @@ describe("engine evaluation context", () => {
       state,
     )
 
-    expect(decision.action).toBe("SILENCE")
-    expect(provider.context).toEqual({
-      feedback: [
-        {
-          eventId: "event-1",
-          data: {
-            useful: true,
-          },
-          recordedAt: "2026-09-22T04:01:00.000Z",
-        },
+    expect(decision.action).toBe("SPEAK")
+    expect(decision.source).toBe("llm")
+    expect(decision.reason).toBe(
+      "Previous feedback supports an interaction",
+    )
+    expect(decision.recommendation).toEqual({
+      action: "SPEAK",
+      reason: "Previous feedback supports an interaction",
+      evidence: [
+        "Relevant feedback is available",
       ],
+      message:
+        "This interaction is informed by previous feedback.",
     })
   })
 
-  it("provides empty feedback context when no feedback query exists", async () => {
-    const provider = new ContextCapturingProvider()
+  it("allows the intelligence provider to distinguish an empty context", async () => {
+    const provider = new ContextAwareProvider()
 
-    const engine = new ProactivityEngine(provider)
+    const engine = new ProactivityEngine(
+      provider,
+    )
 
-    await engine.evaluate(event, state)
+    const decision = await engine.evaluate(
+      event,
+      state,
+    )
 
-    expect(provider.context).toEqual({
-      feedback: [],
-    })
+    expect(decision.action).toBe("SILENCE")
+    expect(decision.source).toBe("llm")
+    expect(decision.reason).toBe(
+      "No relevant feedback is available",
+    )
   })
 })
