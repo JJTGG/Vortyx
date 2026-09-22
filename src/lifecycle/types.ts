@@ -1,0 +1,10 @@
+export type EventLifecycleState =
+  | "OBSERVED"
+  | "EVALUATING"
+  | "QUEUED"
+  | "RE_EVALUATING"
+  | "INITIATED"
+  | "USER_RESPONDED"
+  | "IGNORED"
+  | "FEEDBACK"
+  | "SILENCED"
