@@ -10,6 +10,7 @@ import { executeInteraction } from "@/interaction/execute"
 import type { InteractionRequest } from "@/interaction/types"
 import type { InteractionHistory } from "@/interaction/history"
 import type { DecisionLog } from "@/decision-log/types"
+import type { WaitQueue } from "@/wait/types"
 import type { UserState } from "@/state/types"
 
 export type ProcessEventResult = {
@@ -25,6 +26,7 @@ export async function processEvent(
   delivery: InteractionDelivery,
   decisionLog?: DecisionLog,
   interactionHistory?: InteractionHistory,
+  waitQueue?: WaitQueue,
 ): Promise<ProcessEventResult> {
   const observedState: EventLifecycleState = "OBSERVED"
 
@@ -45,6 +47,17 @@ export async function processEvent(
     recommendation: decision.recommendation,
     recordedAt: new Date().toISOString(),
   })
+
+  if (
+    decision.action === "WAIT" &&
+    decision.recommendation?.action === "WAIT"
+  ) {
+    waitQueue?.enqueue({
+      event,
+      recommendation: decision.recommendation,
+      queuedAt: new Date().toISOString(),
+    })
+  }
 
   const interaction = await executeInteraction(
     decision,
