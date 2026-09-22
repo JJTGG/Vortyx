@@ -7,9 +7,14 @@ export type WaitQueueEntry = {
   queuedAt: string
 }
 
+export type WaitQueueTrigger = {
+  now: string
+  event?: Event
+}
+
 export interface WaitQueue {
   enqueue(entry: WaitQueueEntry): void
-  getDue(now: string): WaitQueueEntry[]
+  getDue(trigger: WaitQueueTrigger): WaitQueueEntry[]
   remove(eventId: string): void
   getAll(): WaitQueueEntry[]
 }
