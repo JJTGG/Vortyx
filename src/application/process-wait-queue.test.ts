@@ -1,0 +1,223 @@
+import { describe, expect, it } from "vitest"
+import type { Event } from "@/events/types"
+import { ProactivityEngine } from "@/engine/engine"
+import type { Recommendation } from "@/engine/types"
+import type { IntelligenceProvider } from "@/intelligence/provider"
+import type {
+  WaitQueue,
+  WaitQueueEntry,
+} from "@/wait/types"
+import { InMemoryWaitQueue } from "@/wait/in-memory"
+import { InMemoryInteractionDelivery } from "@/interaction/in-memory-delivery"
+import { InMemoryInteractionHistory } from "@/interaction/in-memory-history"
+import { processWaitQueue } from "@/application/process-wait-queue"
+import type { UserState } from "@/state/types"
+
+const event: Event = {
+  id: "event-1",
+  type: "unknown",
+  timestamp: "2026-09-22T04:00:00.000Z",
+  source: "test",
+  data: {
+    value: "example",
+  },
+}
+
+const state: UserState = {
+  userId: "user-1",
+  preferences: {
+    proactiveEnabled: true,
+  },
+  recentEvents: [],
+}
+
+const wait: Recommendation = {
+  action: "WAIT",
+  reason: "Need more time",
+  evidence: ["Timing is uncertain"],
+  reconsiderWhen: {
+    type: "time",
+    at: "2026-09-22T04:05:00.000Z",
+  },
+  expiresAt: "2026-09-22T05:00:00.000Z",
+}
+
+function enqueueWait(
+  queue: WaitQueue,
+  recommendation: Recommendation = wait,
+): void {
+  queue.enqueue({
+    event,
+    recommendation,
+    queuedAt: "2026-09-22T04:00:00.000Z",
+  })
+}
+
+describe("process wait queue", () => {
+  it("processes a due WAIT into SPEAK, delivers the interaction, and removes the entry", async () => {
+    const recommendation: Recommendation = {
+      action: "SPEAK",
+      reason: "Now is the right time",
+      evidence: ["Reconsideration time reached"],
+      message: "It is time to check in.",
+    }
+
+    const provider: IntelligenceProvider = {
+      async evaluate(): Promise<Recommendation> {
+        return recommendation
+      },
+    }
+
+    const engine = new ProactivityEngine(provider)
+    const queue = new InMemoryWaitQueue()
+    const delivery = new InMemoryInteractionDelivery()
+    const history = new InMemoryInteractionHistory()
+
+    enqueueWait(queue)
+
+    const result = await processWaitQueue(
+      "2026-09-22T04:05:00.000Z",
+      state,
+      engine,
+      queue,
+      delivery,
+      undefined,
+      history,
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({
+      eventId: "event-1",
+      decision: {
+        action: "SPEAK",
+        reason: "Now is the right time",
+        eventId: "event-1",
+        source: "llm",
+        recommendation,
+      },
+      interaction: {
+        eventId: "event-1",
+        message: "It is time to check in.",
+        reason: "Now is the right time",
+      },
+      lifecycle: "INITIATED",
+    })
+
+    expect(queue.getAll()).toEqual([])
+    expect(delivery.getDelivered()).toEqual([
+      result[0].interaction,
+    ])
+    expect(history.getRecent(1)).toEqual([
+      {
+        eventId: "event-1",
+        message: "It is time to check in.",
+        reason: "Now is the right time",
+        initiatedAt: "2026-09-22T04:05:00.000Z",
+      },
+    ])
+  })
+
+  it("processes an expired WAIT into SILENCE and removes the entry", async () => {
+    const engine = new ProactivityEngine()
+    const queue = new InMemoryWaitQueue()
+    const delivery = new InMemoryInteractionDelivery()
+
+    enqueueWait(queue)
+
+    const result = await processWaitQueue(
+      "2026-09-22T05:00:00.000Z",
+      state,
+      engine,
+      queue,
+      delivery,
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0].decision.action).toBe("SILENCE")
+    expect(result[0].decision.reason).toBe(
+      "WAIT has expired",
+    )
+    expect(result[0].lifecycle).toBe("SILENCED")
+    expect(result[0].interaction).toBeNull()
+
+    expect(queue.getAll()).toEqual([])
+    expect(delivery.getDelivered()).toEqual([])
+  })
+
+  it("keeps a WAIT queued when its reconsideration condition has not been met", async () => {
+    const eventWait: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for a user action",
+      evidence: ["User action has not happened"],
+      reconsiderWhen: {
+        type: "event",
+        eventType: "user_action",
+      },
+      expiresAt: "2026-09-22T05:00:00.000Z",
+    }
+
+    const queue: WaitQueue = {
+      entries: [],
+      enqueue(entry: WaitQueueEntry): void {
+        this.entries.push(entry)
+      },
+      getDue(_now: string): WaitQueueEntry[] {
+        return [...this.entries]
+      },
+      remove(eventId: string): void {
+        const index = this.entries.findIndex(
+          (entry) => entry.event.id === eventId,
+        )
+
+        if (index !== -1) {
+          this.entries.splice(index, 1)
+        }
+      },
+      getAll(): WaitQueueEntry[] {
+        return [...this.entries]
+      },
+    }
+
+    enqueueWait(queue, eventWait)
+
+    const engine = new ProactivityEngine()
+    const delivery = new InMemoryInteractionDelivery()
+
+    const result = await processWaitQueue(
+      "2026-09-22T04:30:00.000Z",
+      state,
+      engine,
+      queue,
+      delivery,
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0].decision.action).toBe("WAIT")
+    expect(result[0].decision.reason).toBe(
+      "WAIT reconsideration condition has not been met",
+    )
+    expect(result[0].lifecycle).toBe("QUEUED")
+    expect(result[0].interaction).toBeNull()
+
+    expect(queue.getAll()).toHaveLength(1)
+    expect(queue.getAll()[0].event.id).toBe("event-1")
+    expect(delivery.getDelivered()).toEqual([])
+  })
+
+  it("does nothing when the queue has no due entries", async () => {
+    const engine = new ProactivityEngine()
+    const queue = new InMemoryWaitQueue()
+    const delivery = new InMemoryInteractionDelivery()
+
+    const result = await processWaitQueue(
+      "2026-09-22T04:05:00.000Z",
+      state,
+      engine,
+      queue,
+      delivery,
+    )
+
+    expect(result).toEqual([])
+    expect(delivery.getDelivered()).toEqual([])
+  })
+})
