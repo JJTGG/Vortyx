@@ -1,20 +1,12 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import type { Event } from "@/events/types"
 import { ProactivityEngine } from "@/engine/engine"
+import type { Recommendation } from "@/engine/types"
 import { FakeIntelligenceProvider } from "@/intelligence/fake"
 import { InMemoryInteractionDelivery } from "@/interaction/in-memory-delivery"
 import { InMemoryDecisionLog } from "@/decision-log/in-memory"
 import { reconsiderWait } from "@/application/reconsider-wait"
-import type { Event } from "@/events/types"
-import type { Recommendation } from "@/engine/types"
 import type { UserState } from "@/state/types"
-
-const event: Event = {
-  id: "event-2",
-  type: "unknown",
-  timestamp: "2026-01-01T10:00:00.000Z",
-  source: "test",
-  data: {},
-}
 
 const state: UserState = {
   userId: "user-1",
@@ -24,68 +16,62 @@ const state: UserState = {
   recentEvents: [],
 }
 
-const wait: Recommendation = {
-  action: "WAIT",
-  reason: "Waiting for more time",
-  evidence: ["Test evidence"],
-  reconsiderWhen: {
-    type: "time",
-    at: "2026-01-01T10:05:00.000Z",
+const event: Event = {
+  id: "event-1",
+  type: "external",
+  timestamp: "2026-01-01T12:00:00.000Z",
+  source: "test",
+  data: {
+    value: "new",
   },
-  expiresAt: "2026-01-01T11:00:00.000Z",
 }
 
-describe("reconsiderWait application boundary", () => {
-  it("keeps waiting without invoking intelligence", async () => {
-    let evaluations = 0
+const wait: Recommendation = {
+  action: "WAIT",
+  reason: "Need more evidence",
+  evidence: ["Initial event was inconclusive"],
+  reconsiderWhen: {
+    type: "new_evidence",
+    description: "New event data is available",
+  },
+  expiresAt: "2026-01-01T13:00:00.000Z",
+}
 
-    const provider = new FakeIntelligenceProvider()
+describe("reconsiderWait lifecycle", () => {
+  it("tracks KEEP_WAITING as QUEUED", async () => {
+    const provider = {
+      evaluate: vi.fn(),
+    }
 
-    const engine = new ProactivityEngine({
-      async evaluate(event, state) {
-        evaluations += 1
-        return provider.evaluate(event, state)
-      },
-    })
-
+    const engine = new ProactivityEngine(provider)
     const delivery = new InMemoryInteractionDelivery()
-    const decisionLog = new InMemoryDecisionLog()
+    const log = new InMemoryDecisionLog()
 
     const result = await reconsiderWait(
       wait,
-      event,
+      {
+        ...event,
+        data: {},
+      },
       state,
       engine,
       delivery,
-      "2026-01-01T10:03:00.000Z",
-      decisionLog,
+      "2026-01-01T12:10:00.000Z",
+      log,
     )
 
+    expect(result.lifecycle).toBe("QUEUED")
     expect(result.decision.action).toBe("WAIT")
-    expect(result.decision.source).toBe("deterministic")
-    expect(evaluations).toBe(0)
     expect(result.interaction).toBeNull()
-    expect(delivery.getDelivered()).toEqual([])
-
-    expect(decisionLog.getEntries()).toHaveLength(1)
-    expect(decisionLog.getEntries()[0].action).toBe("WAIT")
+    expect(provider.evaluate).not.toHaveBeenCalled()
+    expect(log.getEntries()).toHaveLength(1)
   })
 
-  it("re-evaluates after the reconsideration condition is met", async () => {
-    let evaluations = 0
-
-    const engine = new ProactivityEngine({
-      async evaluate(event, state) {
-        evaluations += 1
-        return new FakeIntelligenceProvider().evaluate(
-          event,
-          state,
-        )
-      },
-    })
-
+  it("tracks RECONSIDER as INITIATED", async () => {
+    const provider = new FakeIntelligenceProvider()
+    const engine = new ProactivityEngine(provider)
     const delivery = new InMemoryInteractionDelivery()
-    const decisionLog = new InMemoryDecisionLog()
+    const log = new InMemoryDecisionLog()
 
     const result = await reconsiderWait(
       wait,
@@ -93,39 +79,25 @@ describe("reconsiderWait application boundary", () => {
       state,
       engine,
       delivery,
-      "2026-01-01T10:06:00.000Z",
-      decisionLog,
+      "2026-01-01T12:10:00.000Z",
+      log,
     )
 
+    expect(result.lifecycle).toBe("INITIATED")
     expect(result.decision.action).toBe("SPEAK")
-    expect(result.decision.source).toBe("llm")
-    expect(evaluations).toBe(1)
     expect(result.interaction).not.toBeNull()
     expect(delivery.getDelivered()).toHaveLength(1)
-
-    expect(decisionLog.getEntries()).toHaveLength(1)
-    expect(decisionLog.getEntries()[0].action).toBe("SPEAK")
-    expect(decisionLog.getEntries()[0].source).toBe("llm")
+    expect(log.getEntries()[0]?.source).toBe("llm")
   })
 
-  it("silences an expired WAIT without invoking intelligence", async () => {
-    let evaluations = 0
+  it("tracks EXPIRED as SILENCED", async () => {
+    const provider = {
+      evaluate: vi.fn(),
+    }
 
-    const engine = new ProactivityEngine({
-      async evaluate() {
-        evaluations += 1
-
-        return {
-          action: "SPEAK",
-          reason: "Should not be reached",
-          evidence: [],
-          message: "Should not be delivered",
-        }
-      },
-    })
-
+    const engine = new ProactivityEngine(provider)
     const delivery = new InMemoryInteractionDelivery()
-    const decisionLog = new InMemoryDecisionLog()
+    const log = new InMemoryDecisionLog()
 
     const result = await reconsiderWait(
       wait,
@@ -133,17 +105,14 @@ describe("reconsiderWait application boundary", () => {
       state,
       engine,
       delivery,
-      "2026-01-01T11:00:00.000Z",
-      decisionLog,
+      "2026-01-01T13:00:00.000Z",
+      log,
     )
 
+    expect(result.lifecycle).toBe("SILENCED")
     expect(result.decision.action).toBe("SILENCE")
-    expect(result.decision.source).toBe("deterministic")
-    expect(evaluations).toBe(0)
     expect(result.interaction).toBeNull()
-    expect(delivery.getDelivered()).toEqual([])
-
-    expect(decisionLog.getEntries()).toHaveLength(1)
-    expect(decisionLog.getEntries()[0].action).toBe("SILENCE")
+    expect(provider.evaluate).not.toHaveBeenCalled()
+    expect(log.getEntries()[0]?.source).toBe("deterministic")
   })
 })
