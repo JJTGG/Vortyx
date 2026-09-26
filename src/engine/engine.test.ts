@@ -257,6 +257,172 @@ describe("ProactivityEngine", () => {
     }
   })
 
+  it("handles concurrent events with mixed outcomes independently", async () => {
+    let providerCalls = 0
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        event: Event,
+      ): Promise<Recommendation> {
+        providerCalls += 1
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0)
+        })
+
+        switch (event.data.mode) {
+          case "speak":
+            return {
+              action: "SPEAK",
+              reason: "Immediate interaction is justified",
+              evidence: ["Concurrent event requires interaction"],
+              message: "A proactive response is justified.",
+            }
+
+          case "wait":
+            return {
+              action: "WAIT",
+              reason: "More information is needed",
+              evidence: ["Timing is still uncertain"],
+              reconsiderWhen: {
+                type: "time",
+                at: "2026-01-01T10:05:00.000Z",
+              },
+              expiresAt: "2026-01-01T11:00:00.000Z",
+            }
+
+          case "invalid":
+            return {
+              action: "SPEAK",
+              reason: "",
+              evidence: [],
+              message: "",
+            }
+
+          case "fail":
+            throw new Error("Concurrent provider failure")
+
+          default:
+            throw new Error(
+              `Unexpected test mode: ${String(
+                event.data.mode,
+              )}`,
+            )
+        }
+      },
+    }
+
+    const events: Event[] = [
+      {
+        id: "mixed-speak",
+        type: "user_signal",
+        timestamp: "2026-01-01T10:02:00.000Z",
+        source: "sensor",
+        data: {
+          mode: "speak",
+        },
+      },
+      {
+        id: "mixed-wait",
+        type: "user_signal",
+        timestamp: "2026-01-01T10:02:01.000Z",
+        source: "sensor",
+        data: {
+          mode: "wait",
+        },
+      },
+      {
+        id: "mixed-invalid",
+        type: "user_signal",
+        timestamp: "2026-01-01T10:02:02.000Z",
+        source: "sensor",
+        data: {
+          mode: "invalid",
+        },
+      },
+      {
+        id: "mixed-fail",
+        type: "user_signal",
+        timestamp: "2026-01-01T10:02:03.000Z",
+        source: "sensor",
+        data: {
+          mode: "fail",
+        },
+      },
+      {
+        id: "mixed-deterministic",
+        type: "system",
+        timestamp: "2026-01-01T10:02:04.000Z",
+        source: "system",
+        data: {},
+      },
+    ]
+
+    const engine = new ProactivityEngine(provider)
+
+    const decisions = await Promise.all(
+      events.map((event) =>
+        engine.evaluate(event, baseState),
+      ),
+    )
+
+    expect(providerCalls).toBe(4)
+
+    expect(decisions[0]).toEqual({
+      action: "SPEAK",
+      reason: "Immediate interaction is justified",
+      eventId: "mixed-speak",
+      source: "llm",
+      recommendation: {
+        action: "SPEAK",
+        reason: "Immediate interaction is justified",
+        evidence: ["Concurrent event requires interaction"],
+        message: "A proactive response is justified.",
+      },
+    })
+
+    expect(decisions[1]).toEqual({
+      action: "WAIT",
+      reason: "More information is needed",
+      eventId: "mixed-wait",
+      source: "llm",
+      recommendation: {
+        action: "WAIT",
+        reason: "More information is needed",
+        evidence: ["Timing is still uncertain"],
+        reconsiderWhen: {
+          type: "time",
+          at: "2026-01-01T10:05:00.000Z",
+        },
+        expiresAt: "2026-01-01T11:00:00.000Z",
+      },
+    })
+
+    expect(decisions[2]).toEqual({
+      action: "SILENCE",
+      reason:
+        "Intelligence provider returned an invalid recommendation",
+      eventId: "mixed-invalid",
+      source: "deterministic",
+    })
+
+    expect(decisions[3].action).toBe("WAIT")
+    expect(decisions[3].reason).toBe(
+      "Intelligence provider failed",
+    )
+    expect(decisions[3].eventId).toBe("mixed-fail")
+    expect(decisions[3].source).toBe("deterministic")
+    expect(decisions[3].recommendation?.action).toBe("WAIT")
+
+    expect(decisions[4]).toEqual({
+      action: "SILENCE",
+      reason:
+        "System events can be handled deterministically",
+      eventId: "mixed-deterministic",
+      source: "deterministic",
+    })
+  })
+
   it("silences when the proactive interaction cooldown is active", async () => {
     const history = new InMemoryInteractionHistory()
 
