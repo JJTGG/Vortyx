@@ -200,6 +200,63 @@ describe("ProactivityEngine", () => {
     expect(calls).toBe(10)
   })
 
+  it("evaluates concurrent distinct signals independently", async () => {
+    const evaluatedEventIds: string[] = []
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        event: Event,
+      ): Promise<Recommendation> {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0)
+        })
+
+        evaluatedEventIds.push(event.id)
+
+        return {
+          action: "SPEAK",
+          reason: "Concurrent signal received",
+          evidence: ["Signal was evaluated independently"],
+          message: `Signal ${event.id} received.`,
+        }
+      },
+    }
+
+    const events: Event[] = Array.from(
+      { length: 10 },
+      (_, index) => ({
+        id: `concurrent-event-${index + 1}`,
+        type: "user_signal",
+        timestamp: `2026-01-01T10:01:00.${String(
+          index,
+        ).padStart(3, "0")}Z`,
+        source: "sensor",
+        data: {
+          value: index + 1,
+        },
+      }),
+    )
+
+    const engine = new ProactivityEngine(provider)
+
+    const decisions = await Promise.all(
+      events.map((event) =>
+        engine.evaluate(event, baseState),
+      ),
+    )
+
+    expect(decisions).toHaveLength(10)
+    expect(evaluatedEventIds).toHaveLength(10)
+    expect(new Set(evaluatedEventIds).size).toBe(10)
+
+    for (let index = 0; index < events.length; index += 1) {
+      expect(decisions[index].action).toBe("SPEAK")
+      expect(decisions[index].eventId).toBe(
+        events[index].id,
+      )
+    }
+  })
+
   it("silences when the proactive interaction cooldown is active", async () => {
     const history = new InMemoryInteractionHistory()
 
