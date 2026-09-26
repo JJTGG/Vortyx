@@ -423,6 +423,106 @@ describe("ProactivityEngine", () => {
     })
   })
 
+  it("handles shared interaction history correctly across concurrent evaluations", async () => {
+    const history = new InMemoryInteractionHistory()
+    let providerCalls = 0
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        event: Event,
+      ): Promise<Recommendation> {
+        providerCalls += 1
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0)
+        })
+
+        return {
+          action: "SPEAK",
+          reason: "Concurrent signal requires interaction",
+          evidence: ["No interaction cooldown was active"],
+          message: `Interaction for ${event.id}.`,
+        }
+      },
+    }
+
+    const engine = new ProactivityEngine(
+      provider,
+      undefined,
+      history,
+    )
+
+    const initialEvents: Event[] = Array.from(
+      { length: 10 },
+      (_, index) => ({
+        id: `history-event-${index + 1}`,
+        type: "user_signal",
+        timestamp: `2026-01-01T10:10:00.${String(
+          index,
+        ).padStart(3, "0")}Z`,
+        source: "sensor",
+        data: {
+          value: index + 1,
+        },
+      }),
+    )
+
+    const initialDecisions = await Promise.all(
+      initialEvents.map((event) =>
+        engine.evaluate(event, baseState),
+      ),
+    )
+
+    expect(initialDecisions).toHaveLength(10)
+    expect(
+      initialDecisions.every(
+        (decision) => decision.action === "SPEAK",
+      ),
+    ).toBe(true)
+    expect(providerCalls).toBe(10)
+
+    history.record({
+      eventId: "recorded-interaction",
+      message: "Recent proactive interaction",
+      reason: "Stress test interaction",
+      initiatedAt: "2026-01-01T10:15:00.000Z",
+    })
+
+    const cooldownEvents: Event[] = Array.from(
+      { length: 10 },
+      (_, index) => ({
+        id: `cooldown-event-${index + 1}`,
+        type: "user_signal",
+        timestamp: `2026-01-01T10:20:00.${String(
+          index,
+        ).padStart(3, "0")}Z`,
+        source: "sensor",
+        data: {
+          value: index + 1,
+        },
+      }),
+    )
+
+    const cooldownDecisions = await Promise.all(
+      cooldownEvents.map((event) =>
+        engine.evaluate(event, baseState),
+      ),
+    )
+
+    expect(cooldownDecisions).toHaveLength(10)
+    expect(
+      cooldownDecisions.every(
+        (decision) =>
+          decision.action === "SILENCE" &&
+          decision.reason ===
+            "Proactive interaction cooldown is active" &&
+          decision.source === "deterministic",
+      ),
+    ).toBe(true)
+
+    expect(providerCalls).toBe(10)
+  })
+
   it("silences when the proactive interaction cooldown is active", async () => {
     const history = new InMemoryInteractionHistory()
 
