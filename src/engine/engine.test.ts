@@ -940,13 +940,36 @@ describe("ProactivityEngine", () => {
   })
 
   it("keeps unrelated WAIT recommendations waiting when only one condition is satisfied", async () => {
-    const waitForSystem: Recommendation = {
+    let providerCalls = 0
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        event: Event,
+      ): Promise<Recommendation> {
+        providerCalls += 1
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0)
+        })
+
+        return {
+          action: "SPEAK",
+          reason: "The matching WAIT should be reconsidered",
+          evidence: [
+            `Reconsideration triggered by ${event.type}`,
+          ],
+          message: "The matching WAIT was reconsidered.",
+        }
+      },
+    }
+
+    const waitForSignal: Recommendation = {
       action: "WAIT",
-      reason: "Waiting for a system event",
-      evidence: ["System event is the relevant trigger"],
+      reason: "Waiting for a user signal",
+      evidence: ["User signal is the relevant trigger"],
       reconsiderWhen: {
         type: "event",
-        eventType: "system",
+        eventType: "user_signal",
       },
       expiresAt: "2026-01-01T11:00:00.000Z",
     }
@@ -962,51 +985,55 @@ describe("ProactivityEngine", () => {
       expiresAt: "2026-01-01T11:00:00.000Z",
     }
 
-    const systemEvent: Event = {
-      id: "system-trigger",
-      type: "system",
+    const signalEvent: Event = {
+      id: "signal-trigger",
+      type: "user_signal",
       timestamp: "2026-01-01T10:05:00.000Z",
       source: "test",
-      data: {},
+      data: {
+        value: "new-signal",
+      },
     }
 
-    const engine = new ProactivityEngine()
+    const engine = new ProactivityEngine(provider)
 
-    const systemResult =
-      await engine.evaluateReconsideredWait(
-        waitForSystem,
-        systemEvent,
-        baseState,
-        "2026-01-01T10:05:00.000Z",
-      )
+    const [signalResult, paymentResult] =
+      await Promise.all([
+        engine.evaluateReconsideredWait(
+          waitForSignal,
+          signalEvent,
+          baseState,
+          "2026-01-01T10:05:00.000Z",
+        ),
+        engine.evaluateReconsideredWait(
+          waitForPayment,
+          signalEvent,
+          baseState,
+          "2026-01-01T10:05:00.000Z",
+        ),
+      ])
 
-    const paymentResult =
-      await engine.evaluateReconsideredWait(
-        waitForPayment,
-        systemEvent,
-        baseState,
-        "2026-01-01T10:05:00.000Z",
-      )
+    expect(providerCalls).toBe(1)
 
-    expect(systemResult).toEqual({
-      action: "WAIT",
-      reason: "WAIT reconsideration condition was met",
-      eventId: "system-trigger",
+    expect(signalResult).toEqual({
+      action: "SPEAK",
+      reason: "The matching WAIT should be reconsidered",
+      eventId: "signal-trigger",
       source: "llm",
       recommendation: {
-        action: "SILENCE",
-        reason: "No relevant feedback is available",
+        action: "SPEAK",
+        reason: "The matching WAIT should be reconsidered",
         evidence: [
-          "Event type: system",
-          "Evaluation context contains no feedback",
+          "Reconsideration triggered by user_signal",
         ],
+        message: "The matching WAIT was reconsidered.",
       },
     })
 
     expect(paymentResult).toEqual({
       action: "WAIT",
       reason: "WAIT reconsideration condition has not been met",
-      eventId: "system-trigger",
+      eventId: "signal-trigger",
       source: "deterministic",
       recommendation: waitForPayment,
     })
