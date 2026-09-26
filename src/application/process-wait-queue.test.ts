@@ -212,7 +212,7 @@ describe("process wait queue", () => {
       evidence: ["User action has not happened"],
       reconsiderWhen: {
         type: "event",
-        eventType: "user_action",
+        eventType: "user_signal",
       },
       expiresAt: "2026-09-22T05:00:00.000Z",
     }
@@ -220,7 +220,7 @@ describe("process wait queue", () => {
     const recommendation: Recommendation = {
       action: "SPEAK",
       reason: "The user action arrived",
-      evidence: ["Matching user_action event received"],
+      evidence: ["Matching user_signal event received"],
       message: "I noticed the action.",
     }
 
@@ -228,7 +228,7 @@ describe("process wait queue", () => {
       async evaluate(
         receivedEvent: Event,
       ): Promise<Recommendation> {
-        expect(receivedEvent.type).toBe("user_action")
+        expect(receivedEvent.type).toBe("user_signal")
         return recommendation
       },
     }
@@ -241,7 +241,7 @@ describe("process wait queue", () => {
 
     const triggerEvent: Event = {
       id: "event-2",
-      type: "user_action",
+      type: "user_signal",
       timestamp: "2026-09-22T04:30:00.000Z",
       source: "test",
       data: {
