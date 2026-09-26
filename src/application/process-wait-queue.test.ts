@@ -6,6 +6,7 @@ import type { IntelligenceProvider } from "@/intelligence/provider"
 import type {
   WaitQueue,
   WaitQueueEntry,
+  WaitQueueTrigger,
 } from "@/wait/types"
 import { InMemoryWaitQueue } from "@/wait/in-memory"
 import { InMemoryInteractionDelivery } from "@/interaction/in-memory-delivery"
@@ -161,7 +162,7 @@ describe("process wait queue", () => {
       enqueue(entry: WaitQueueEntry): void {
         this.entries.push(entry)
       },
-      getDue(_now: string): WaitQueueEntry[] {
+      getDue(_trigger: WaitQueueTrigger): WaitQueueEntry[] {
         return [...this.entries]
       },
       remove(eventId: string): void {
