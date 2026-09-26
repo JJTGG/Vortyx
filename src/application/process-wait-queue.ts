@@ -1,3 +1,4 @@
+import type { Event } from "@/events/types"
 import type { ProactivityEngine } from "@/engine/engine"
 import type { Decision } from "@/engine/types"
 import type { EventLifecycleState } from "@/lifecycle/types"
@@ -28,10 +29,12 @@ export async function processWaitQueue(
   delivery: InteractionDelivery,
   decisionLog?: DecisionLog,
   interactionHistory?: InteractionHistory,
+  triggerEvent?: Event,
 ): Promise<ProcessWaitQueueResult[]> {
   const dueEntries = queue.getDue({
-  now,
-})
+    now,
+    event: triggerEvent,
+  })
   const results: ProcessWaitQueueResult[] = []
 
   for (const entry of dueEntries) {
