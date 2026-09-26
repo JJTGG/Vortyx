@@ -19,6 +19,7 @@ const WAIT_EXPIRY_DELAY_MS = 60 * 60 * 1000
 function createBoundedWait(
   event: Event,
   reason: string,
+  decisionEventId = event.id,
 ): Decision {
   const eventTime = Date.parse(event.timestamp)
 
@@ -26,7 +27,7 @@ function createBoundedWait(
     return {
       action: "SILENCE",
       reason: "Cannot create bounded WAIT from an invalid event timestamp",
-      eventId: event.id,
+      eventId: decisionEventId,
       source: "deterministic",
     }
   }
@@ -51,7 +52,7 @@ function createBoundedWait(
   return {
     action: "WAIT",
     reason,
-    eventId: event.id,
+    eventId: decisionEventId,
     source: "deterministic",
     recommendation,
   }
@@ -96,12 +97,13 @@ export class ProactivityEngine {
     event: Event,
     state: UserState,
     checkDuplicates: boolean,
+    decisionEventId = event.id,
   ): Promise<Decision> {
     if (!state.preferences.proactiveEnabled) {
       return {
         action: "SILENCE",
         reason: "Proactive interactions are disabled",
-        eventId: event.id,
+        eventId: decisionEventId,
         source: "deterministic",
       }
     }
@@ -117,7 +119,7 @@ export class ProactivityEngine {
         return {
           action: "SILENCE",
           reason: "Duplicate event detected",
-          eventId: event.id,
+          eventId: decisionEventId,
           source: "deterministic",
         }
       }
@@ -133,7 +135,7 @@ export class ProactivityEngine {
       return {
         action: "SILENCE",
         reason: "Proactive interaction cooldown is active",
-        eventId: event.id,
+        eventId: decisionEventId,
         source: "deterministic",
       }
     }
@@ -144,12 +146,14 @@ export class ProactivityEngine {
       return {
         action: "SILENCE",
         reason: intelligenceNeed.reason,
-        eventId: event.id,
+        eventId: decisionEventId,
         source: "deterministic",
       }
     }
 
-    const context = this.buildEvaluationContext(event.id)
+    const context = this.buildEvaluationContext(
+      decisionEventId,
+    )
 
     let recommendation: Recommendation
 
@@ -163,6 +167,7 @@ export class ProactivityEngine {
       return createBoundedWait(
         event,
         "Intelligence provider failed",
+        decisionEventId,
       )
     }
 
@@ -170,7 +175,7 @@ export class ProactivityEngine {
       return {
         action: "SILENCE",
         reason: "Intelligence provider returned an invalid recommendation",
-        eventId: event.id,
+        eventId: decisionEventId,
         source: "deterministic",
       }
     }
@@ -178,7 +183,7 @@ export class ProactivityEngine {
     return {
       action: recommendation.action,
       reason: recommendation.reason,
-      eventId: event.id,
+      eventId: decisionEventId,
       source: "llm",
       recommendation,
     }
@@ -196,6 +201,7 @@ export class ProactivityEngine {
     event: Event,
     state: UserState,
     now: string,
+    decisionEventId = event.id,
   ): Promise<Decision> {
     const reconsideration = reconsiderWait(
       wait,
@@ -208,7 +214,7 @@ export class ProactivityEngine {
         return {
           action: "WAIT",
           reason: reconsideration.reason,
-          eventId: event.id,
+          eventId: decisionEventId,
           source: "deterministic",
           recommendation: wait,
         }
@@ -217,7 +223,7 @@ export class ProactivityEngine {
         return {
           action: "SILENCE",
           reason: reconsideration.reason,
-          eventId: event.id,
+          eventId: decisionEventId,
           source: "deterministic",
         }
 
@@ -226,6 +232,7 @@ export class ProactivityEngine {
           event,
           state,
           false,
+          decisionEventId,
         )
     }
   }
