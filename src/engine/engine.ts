@@ -16,6 +16,13 @@ import type { UserState } from "@/state/types"
 const WAIT_RECONSIDER_DELAY_MS = 5 * 60 * 1000
 const WAIT_EXPIRY_DELAY_MS = 60 * 60 * 1000
 
+function areEventDataEqual(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 function createBoundedWait(
   event: Event,
   reason: string,
@@ -112,7 +119,11 @@ export class ProactivityEngine {
       const duplicate = state.recentEvents.some(
         (recentEvent) =>
           recentEvent.type === event.type &&
-          recentEvent.source === event.source,
+          recentEvent.source === event.source &&
+          areEventDataEqual(
+            recentEvent.data,
+            event.data,
+          ),
       )
 
       if (duplicate) {
