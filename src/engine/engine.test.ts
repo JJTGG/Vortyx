@@ -86,6 +86,65 @@ describe("ProactivityEngine", () => {
     })
   })
 
+  it("does not treat contradictory signals as duplicates", async () => {
+    let calls = 0
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        event: Event,
+      ): Promise<Recommendation> {
+        calls += 1
+
+        expect(event.data).toEqual({
+          status: "active",
+        })
+
+        return {
+          action: "SPEAK",
+          reason: "The signal changed meaningfully",
+          evidence: [
+            "Current signal contradicts the previous signal",
+          ],
+          message: "The signal changed.",
+        }
+      },
+    }
+
+    const previousEvent: Event = {
+      id: "previous-event",
+      type: "user_signal",
+      timestamp: "2026-01-01T09:59:00.000Z",
+      source: "sensor",
+      data: {
+        status: "inactive",
+      },
+    }
+
+    const currentEvent: Event = {
+      id: "current-event",
+      type: "user_signal",
+      timestamp: "2026-01-01T10:00:00.000Z",
+      source: "sensor",
+      data: {
+        status: "active",
+      },
+    }
+
+    const engine = new ProactivityEngine(provider)
+
+    const decision = await engine.evaluate(
+      currentEvent,
+      {
+        ...baseState,
+        recentEvents: [previousEvent],
+      },
+    )
+
+    expect(calls).toBe(1)
+    expect(decision.action).toBe("SPEAK")
+    expect(decision.eventId).toBe("current-event")
+  })
+
   it("silences when the proactive interaction cooldown is active", async () => {
     const history = new InMemoryInteractionHistory()
 
