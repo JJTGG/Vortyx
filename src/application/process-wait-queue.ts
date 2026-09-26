@@ -48,6 +48,7 @@ export async function processWaitQueue(
       evaluationEvent,
       state,
       now,
+      entry.event.id,
     )
 
     const lifecycle = transitionFromDecision(
