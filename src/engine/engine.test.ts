@@ -560,6 +560,103 @@ describe("ProactivityEngine", () => {
     })
   })
 
+  it("tests the exact proactive cooldown boundary", async () => {
+    const history = new InMemoryInteractionHistory()
+    let providerCalls = 0
+
+    history.record({
+      eventId: "boundary-interaction",
+      message: "Boundary interaction",
+      reason: "Cooldown boundary stress test",
+      initiatedAt: "2026-01-01T10:00:00.000Z",
+    })
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        event: Event,
+      ): Promise<Recommendation> {
+        providerCalls += 1
+
+        return {
+          action: "SPEAK",
+          reason: "Cooldown has ended",
+          evidence: ["Event is at or beyond the cooldown boundary"],
+          message: `Boundary event ${event.id}.`,
+        }
+      },
+    }
+
+    const engine = new ProactivityEngine(
+      provider,
+      undefined,
+      history,
+    )
+
+    const beforeBoundary: Event = {
+      id: "boundary-before",
+      type: "user_signal",
+      timestamp: "2026-01-01T10:29:59.999Z",
+      source: "sensor",
+      data: {
+        position: "before",
+      },
+    }
+
+    const exactBoundary: Event = {
+      id: "boundary-exact",
+      type: "user_signal",
+      timestamp: "2026-01-01T10:30:00.000Z",
+      source: "sensor",
+      data: {
+        position: "exact",
+      },
+    }
+
+    const afterBoundary: Event = {
+      id: "boundary-after",
+      type: "user_signal",
+      timestamp: "2026-01-01T10:30:00.001Z",
+      source: "sensor",
+      data: {
+        position: "after",
+      },
+    }
+
+    const beforeDecision = await engine.evaluate(
+      beforeBoundary,
+      baseState,
+    )
+
+    expect(beforeDecision).toEqual({
+      action: "SILENCE",
+      reason: "Proactive interaction cooldown is active",
+      eventId: "boundary-before",
+      source: "deterministic",
+    })
+
+    expect(providerCalls).toBe(0)
+
+    const exactDecision = await engine.evaluate(
+      exactBoundary,
+      baseState,
+    )
+
+    expect(exactDecision.action).toBe("SPEAK")
+    expect(exactDecision.eventId).toBe("boundary-exact")
+    expect(exactDecision.source).toBe("llm")
+    expect(providerCalls).toBe(1)
+
+    const afterDecision = await engine.evaluate(
+      afterBoundary,
+      baseState,
+    )
+
+    expect(afterDecision.action).toBe("SPEAK")
+    expect(afterDecision.eventId).toBe("boundary-after")
+    expect(afterDecision.source).toBe("llm")
+    expect(providerCalls).toBe(2)
+  })
+
   it("handles deterministic events without consulting intelligence", async () => {
     const provider = new FixedProvider({
       action: "SPEAK",
