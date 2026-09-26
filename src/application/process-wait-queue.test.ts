@@ -284,6 +284,132 @@ describe("process wait queue", () => {
     ])
   })
 
+  it("reconsiders only the WAIT matched by the trigger event", async () => {
+    const firstEvent: Event = {
+      id: "event-1",
+      type: "unknown",
+      timestamp: "2026-09-22T04:00:00.000Z",
+      source: "test",
+      data: {
+        value: "first",
+      },
+    }
+
+    const secondEvent: Event = {
+      id: "event-2",
+      type: "unknown",
+      timestamp: "2026-09-22T04:01:00.000Z",
+      source: "test",
+      data: {
+        value: "second",
+      },
+    }
+
+    const firstWait: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for signal A",
+      evidence: ["Signal A has not happened"],
+      reconsiderWhen: {
+        type: "event",
+        eventType: "signal_a",
+      },
+      expiresAt: "2026-09-22T05:00:00.000Z",
+    }
+
+    const secondWait: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for signal B",
+      evidence: ["Signal B has not happened"],
+      reconsiderWhen: {
+        type: "event",
+        eventType: "signal_b",
+      },
+      expiresAt: "2026-09-22T05:00:00.000Z",
+    }
+
+    const recommendation: Recommendation = {
+      action: "SPEAK",
+      reason: "Signal A arrived",
+      evidence: ["Matching signal_a event received"],
+      message: "Signal A arrived.",
+    }
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        receivedEvent: Event,
+      ): Promise<Recommendation> {
+        expect(receivedEvent.type).toBe("signal_a")
+        return recommendation
+      },
+    }
+
+    const engine = new ProactivityEngine(provider)
+    const queue = new InMemoryWaitQueue()
+    const delivery = new InMemoryInteractionDelivery()
+
+    queue.enqueue({
+      event: firstEvent,
+      recommendation: firstWait,
+      queuedAt: "2026-09-22T04:00:00.000Z",
+    })
+
+    queue.enqueue({
+      event: secondEvent,
+      recommendation: secondWait,
+      queuedAt: "2026-09-22T04:01:00.000Z",
+    })
+
+    const triggerEvent: Event = {
+      id: "trigger-1",
+      type: "signal_a",
+      timestamp: "2026-09-22T04:30:00.000Z",
+      source: "test",
+      data: {
+        completed: true,
+      },
+    }
+
+    const result = await processWaitQueue(
+      "2026-09-22T04:30:00.000Z",
+      state,
+      engine,
+      queue,
+      delivery,
+      undefined,
+      undefined,
+      triggerEvent,
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({
+      eventId: "event-1",
+      decision: {
+        action: "SPEAK",
+        reason: "Signal A arrived",
+        eventId: "event-1",
+        source: "llm",
+        recommendation,
+      },
+      interaction: {
+        eventId: "event-1",
+        message: "Signal A arrived.",
+        reason: "Signal A arrived",
+      },
+      lifecycle: "INITIATED",
+    })
+
+    expect(queue.getAll()).toHaveLength(1)
+    expect(queue.getAll()[0]).toEqual({
+      event: secondEvent,
+      recommendation: secondWait,
+      queuedAt: "2026-09-22T04:01:00.000Z",
+    })
+
+    expect(delivery.getDelivered()).toEqual([
+      result[0].interaction,
+    ])
+  })
+
   it("replaces a due WAIT with a new WAIT recommendation", async () => {
     const newWait: Recommendation = {
       action: "WAIT",
