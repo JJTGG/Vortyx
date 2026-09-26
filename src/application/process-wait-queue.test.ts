@@ -205,6 +205,85 @@ describe("process wait queue", () => {
     expect(delivery.getDelivered()).toEqual([])
   })
 
+  it("reconsiders a WAIT when a matching trigger event arrives", async () => {
+    const eventWait: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for a user action",
+      evidence: ["User action has not happened"],
+      reconsiderWhen: {
+        type: "event",
+        eventType: "user_action",
+      },
+      expiresAt: "2026-09-22T05:00:00.000Z",
+    }
+
+    const recommendation: Recommendation = {
+      action: "SPEAK",
+      reason: "The user action arrived",
+      evidence: ["Matching user_action event received"],
+      message: "I noticed the action.",
+    }
+
+    const provider: IntelligenceProvider = {
+      async evaluate(
+        receivedEvent: Event,
+      ): Promise<Recommendation> {
+        expect(receivedEvent.type).toBe("user_action")
+        return recommendation
+      },
+    }
+
+    const queue = new InMemoryWaitQueue()
+    const delivery = new InMemoryInteractionDelivery()
+    const engine = new ProactivityEngine(provider)
+
+    enqueueWait(queue, eventWait)
+
+    const triggerEvent: Event = {
+      id: "event-2",
+      type: "user_action",
+      timestamp: "2026-09-22T04:30:00.000Z",
+      source: "test",
+      data: {
+        action: "completed",
+      },
+    }
+
+    const result = await processWaitQueue(
+      "2026-09-22T04:30:00.000Z",
+      state,
+      engine,
+      queue,
+      delivery,
+      undefined,
+      undefined,
+      triggerEvent,
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toEqual({
+      eventId: "event-1",
+      decision: {
+        action: "SPEAK",
+        reason: "The user action arrived",
+        eventId: "event-1",
+        source: "llm",
+        recommendation,
+      },
+      interaction: {
+        eventId: "event-1",
+        message: "I noticed the action.",
+        reason: "The user action arrived",
+      },
+      lifecycle: "INITIATED",
+    })
+
+    expect(queue.getAll()).toEqual([])
+    expect(delivery.getDelivered()).toEqual([
+      result[0].interaction,
+    ])
+  })
+
   it("replaces a due WAIT with a new WAIT recommendation", async () => {
     const newWait: Recommendation = {
       action: "WAIT",
