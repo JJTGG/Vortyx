@@ -40,9 +40,12 @@ export async function processWaitQueue(
   for (const entry of dueEntries) {
     const evaluatingState = beginEvaluation("QUEUED")
 
+    const evaluationEvent =
+      triggerEvent ?? entry.event
+
     const decision = await engine.evaluateReconsideredWait(
       entry.recommendation,
-      entry.event,
+      evaluationEvent,
       state,
       now,
     )
