@@ -807,6 +807,37 @@ describe("ProactivityEngine", () => {
     expect(decision.recommendation?.action).toBe("WAIT")
   })
 
+  it("silences when a provider fails and the event timestamp is invalid", async () => {
+    const provider: IntelligenceProvider = {
+      async evaluate(): Promise<Recommendation> {
+        throw new Error("Provider failed")
+      },
+    }
+
+    const malformedEvent: Event = {
+      id: "malformed-timestamp",
+      type: "unknown",
+      timestamp: "not-a-timestamp",
+      source: "test",
+      data: {},
+    }
+
+    const engine = new ProactivityEngine(provider)
+
+    const decision = await engine.evaluate(
+      malformedEvent,
+      baseState,
+    )
+
+    expect(decision).toEqual({
+      action: "SILENCE",
+      reason:
+        "Cannot create bounded WAIT from an invalid event timestamp",
+      eventId: "malformed-timestamp",
+      source: "deterministic",
+    })
+  })
+
   it("keeps WAITING when the reconsideration condition has not been met", async () => {
     const wait: Recommendation = {
       action: "WAIT",
