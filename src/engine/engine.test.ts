@@ -939,6 +939,79 @@ describe("ProactivityEngine", () => {
     expect(calls).toBe(0)
   })
 
+  it("keeps unrelated WAIT recommendations waiting when only one condition is satisfied", async () => {
+    const waitForSystem: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for a system event",
+      evidence: ["System event is the relevant trigger"],
+      reconsiderWhen: {
+        type: "event",
+        eventType: "system",
+      },
+      expiresAt: "2026-01-01T11:00:00.000Z",
+    }
+
+    const waitForPayment: Recommendation = {
+      action: "WAIT",
+      reason: "Waiting for a payment event",
+      evidence: ["Payment event is the relevant trigger"],
+      reconsiderWhen: {
+        type: "event",
+        eventType: "payment",
+      },
+      expiresAt: "2026-01-01T11:00:00.000Z",
+    }
+
+    const systemEvent: Event = {
+      id: "system-trigger",
+      type: "system",
+      timestamp: "2026-01-01T10:05:00.000Z",
+      source: "test",
+      data: {},
+    }
+
+    const engine = new ProactivityEngine()
+
+    const systemResult =
+      await engine.evaluateReconsideredWait(
+        waitForSystem,
+        systemEvent,
+        baseState,
+        "2026-01-01T10:05:00.000Z",
+      )
+
+    const paymentResult =
+      await engine.evaluateReconsideredWait(
+        waitForPayment,
+        systemEvent,
+        baseState,
+        "2026-01-01T10:05:00.000Z",
+      )
+
+    expect(systemResult).toEqual({
+      action: "WAIT",
+      reason: "WAIT reconsideration condition was met",
+      eventId: "system-trigger",
+      source: "llm",
+      recommendation: {
+        action: "SILENCE",
+        reason: "No relevant feedback is available",
+        evidence: [
+          "Event type: system",
+          "Evaluation context contains no feedback",
+        ],
+      },
+    })
+
+    expect(paymentResult).toEqual({
+      action: "WAIT",
+      reason: "WAIT reconsideration condition has not been met",
+      eventId: "system-trigger",
+      source: "deterministic",
+      recommendation: waitForPayment,
+    })
+  })
+
   it("can create a new bounded WAIT when reconsideration needs intelligence but the provider fails", async () => {
     const provider: IntelligenceProvider = {
       async evaluate(): Promise<Recommendation> {
